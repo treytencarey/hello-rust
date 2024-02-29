@@ -8,4 +8,4 @@ edition = "2021"
 
 [dependencies]
 bevy = "0.13.0"
-mlua = { version = "0.9.5", features = ["lua54", "macros"] }
+mlua = { version = "0.9.5", features = ["lua54", "macros", "vendored"] }
