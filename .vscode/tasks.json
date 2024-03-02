@@ -12,16 +12,17 @@
         {
             "label": "Build and run hello",
             "type": "shell",
-            "command": "cargo run hello",
+            "command": "cargo",
+            "args": ["run", "-p", "hello"],
             "options": {
                 "env": {
                     "LUA_LIB": "${workspaceFolder}/../lua-5.4.6/src",
                     "LUA_LIB_NAME": "lua",
-                    "LUA_LINK": "static"
+                    "LUA_LINK": "static",
                 }
             },
             "problemMatcher": [],
-            "dependsOn": ["Build and run rust-lua-bind"]
+            // "dependsOn": ["Build and run rust-lua-bind"]
         }
     ]
 }
