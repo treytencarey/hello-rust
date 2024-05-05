@@ -4,12 +4,6 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "Build and run rust-lua-bind",
-            "type": "shell",
-            "command": "cargo run -p rust-lua-bind",
-            "problemMatcher": []
-        },
-        {
             "label": "Build and run hello",
             "type": "shell",
             "command": "cargo",
