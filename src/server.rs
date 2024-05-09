@@ -13,9 +13,6 @@ const GRID_SIZE: f32 = 200.0;
 const VIEW_DISTANCE: i32 = 1; // in grid units (1 = can see 1 grid unit away)
 const NUM_CIRCLES: i32 = 10;
 
-// Special room for the player entities (so that all player entities always see each other)
-const PLAYER_ROOM: RoomId = RoomId(6000);
-
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin;
 
