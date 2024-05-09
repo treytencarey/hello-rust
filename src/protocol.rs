@@ -18,6 +18,7 @@ use lightyear::shared::replication::components::ReplicationMode;
 pub(crate) struct PlayerBundle {
     id: PlayerId,
     position: Position,
+    last_position: LastPosition, // used for checking if the position has crossed a grid boundary
     color: PlayerColor,
     replicate: Replicate,
     action_state: ActionState<Inputs>,
@@ -43,6 +44,7 @@ impl PlayerBundle {
         Self {
             id: PlayerId(id),
             position: Position(position),
+            last_position: LastPosition(None),
             color: PlayerColor(color),
             replicate,
             action_state: ActionState::default(),
@@ -80,6 +82,9 @@ impl Mul<f32> for &Position {
     }
 }
 
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut)]
+pub struct LastPosition(pub(crate) Option<Vec2>);
+
 #[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct PlayerColor(pub(crate) Color);
 
@@ -107,6 +112,7 @@ pub enum Components {
     PlayerId(PlayerId),
     #[protocol(sync(mode = "full"))]
     PlayerPosition(Position),
+    LastPosition(LastPosition),
     #[protocol(sync(mode = "once"))]
     PlayerColor(PlayerColor),
     #[protocol(sync(mode = "once"))]
