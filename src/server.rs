@@ -9,7 +9,7 @@ use lightyear::prelude::*;
 use crate::protocol::*;
 use crate::shared::shared_movement_behaviour;
 
-const GRID_SIZE: f32 = 200.0;
+const GRID_SIZE: f32 = 600.0;
 const VIEW_DISTANCE: i32 = 1; // in grid units (1 = can see 1 grid unit away)
 const NUM_CIRCLES: i32 = 10;
 

@@ -21,8 +21,21 @@ impl Plugin for ExampleClientPlugin {
                 add_input_map,
                 handle_predicted_spawn,
                 handle_interpolated_spawn,
+                camera_movement
             ),
         );
+    }
+}
+
+fn camera_movement(
+    mut camera: Query<&mut Transform, With<Camera>>,
+    player: Query<&Position, With<Predicted>>
+) {
+    for mut transform in &mut camera {
+        for player_transform in &player {
+            transform.translation.x = player_transform.x;
+            transform.translation.y = player_transform.y;
+        }
     }
 }
 
