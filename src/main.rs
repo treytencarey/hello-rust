@@ -13,6 +13,7 @@ mod server;
 mod settings;
 mod shared;
 mod helpers;
+mod player;
 
 fn main() {
     let mut app = App::new()

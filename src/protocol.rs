@@ -13,59 +13,6 @@ use crate::shared::color_from_id;
 use lightyear::prelude::*;
 use lightyear::shared::replication::components::ReplicationMode;
 
-// Player
-#[derive(Bundle)]
-pub(crate) struct PlayerBundle {
-    id: PlayerId,
-    position: Position,
-    last_position: LastPosition, // used for checking if the position has crossed a grid boundary
-    color: PlayerColor,
-    replicate: Replicate,
-    action_state: ActionState<Inputs>,
-}
-
-impl PlayerBundle {
-    pub(crate) fn new(id: ClientId, position: Vec2) -> Self {
-        let color = color_from_id(id);
-        let mut replicate = Replicate {
-            prediction_target: NetworkTarget::Only(vec![id]),
-            interpolation_target: NetworkTarget::AllExcept(vec![id]),
-            // use rooms for replication
-            replication_mode: ReplicationMode::Room,
-            ..default()
-        };
-        // We don't want to replicate the ActionState to the original client, since they are updating it with
-        // their own inputs (if you replicate it to the original client, it will be added on the Confirmed entity,
-        // which will keep syncing it to the Predicted entity because the ActionState gets updated every tick)!
-        replicate.add_target::<ActionState<Inputs>>(NetworkTarget::AllExceptSingle(id));
-        // // we don't want to replicate the ActionState from the server to client, because then the action-state
-        // // will keep getting replicated from confirmed to predicted and will interfere with our inputs
-        // replicate.disable_component::<ActionState<Inputs>>();
-        Self {
-            id: PlayerId(id),
-            position: Position(position),
-            last_position: LastPosition(None),
-            color: PlayerColor(color),
-            replicate,
-            action_state: ActionState::default(),
-        }
-    }
-    pub(crate) fn get_input_map() -> InputMap<Inputs> {
-        InputMap::new([
-            (Inputs::Right, KeyCode::ArrowRight),
-            (Inputs::Right, KeyCode::KeyD),
-            (Inputs::Left, KeyCode::ArrowLeft),
-            (Inputs::Left, KeyCode::KeyA),
-            (Inputs::Up, KeyCode::ArrowUp),
-            (Inputs::Up, KeyCode::KeyW),
-            (Inputs::Down, KeyCode::ArrowDown),
-            (Inputs::Down, KeyCode::KeyS),
-            (Inputs::Delete, KeyCode::Backspace),
-            (Inputs::Spawn, KeyCode::Space),
-        ])
-    }
-}
-
 // Components
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]

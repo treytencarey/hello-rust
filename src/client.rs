@@ -3,6 +3,7 @@ use leafwing_input_manager::prelude::*;
 pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
+use crate::player::{self, AnimationIndices, AnimationTimer, PlayerBundle};
 use crate::protocol::*;
 use crate::shared::shared_movement_behaviour;
 
@@ -14,16 +15,15 @@ impl Plugin for ExampleClientPlugin {
         app.init_resource::<ActionState<Inputs>>();
         app.add_systems(Startup, init);
         app.add_systems(PreUpdate, handle_connection.after(MainSet::Receive));
-        app.add_systems(FixedUpdate, movement);
+        app.add_systems(FixedUpdate, (movement, spawn_player));
         app.add_systems(
             Update,
             (
                 add_input_map,
-                handle_predicted_spawn,
-                handle_interpolated_spawn,
                 camera_movement
             ),
         );
+        app.add_plugins(player::PlayerPlugin);
     }
 }
 
@@ -68,14 +68,20 @@ pub(crate) fn handle_connection(
 // If we were predicting more entities, we would have to only apply movement to the player owned one.
 pub(crate) fn movement(
     // TODO: maybe make prediction mode a separate component!!!
-    mut position_query: Query<(&mut Position, &ActionState<Inputs>), With<Predicted>>,
+    mut position_queries: ParamSet<(
+        Query<(&mut Position, &ActionState<Inputs>), With<Predicted>>,
+        Query<(&Position, &mut Transform), With<PlayerId>>,
+    )>,
 ) {
     // if we are not doing prediction, no need to read inputs
     if <Components as SyncMetadata<Position>>::mode() != ComponentSyncMode::Full {
         return;
     }
-    for (position, input) in position_query.iter_mut() {
+    for (position, input) in position_queries.p0().iter_mut() {
         shared_movement_behaviour(position, input);
+    }
+    for (position, mut transform) in position_queries.p1().iter_mut() {
+        transform.translation = Vec3::new(position.x, position.y, transform.translation.z);
     }
 }
 
@@ -94,20 +100,37 @@ pub(crate) fn add_input_map(
     }
 }
 
-// When the predicted copy of the client-owned entity is spawned, do stuff
-// - assign it a different saturation
-pub(crate) fn handle_predicted_spawn(mut predicted: Query<&mut PlayerColor, Added<Predicted>>) {
-    for mut color in predicted.iter_mut() {
-        color.0.set_s(0.3);
-    }
-}
-
-// When the predicted copy of the client-owned entity is spawned, do stuff
-// - assign it a different saturation
-pub(crate) fn handle_interpolated_spawn(
-    mut interpolated: Query<&mut PlayerColor, Added<Interpolated>>,
+fn spawn_player(
+    mut commands: Commands,
+    players: Query<(&PlayerId, Entity), (Added<PlayerId>, Without<Confirmed>)>,
+    asset_server: Res<AssetServer>,
+    mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
 ) {
-    for mut color in interpolated.iter_mut() {
-        color.0.set_s(0.1);
+    for (player_id, entity) in players.iter() {
+        let texture = asset_server.load("Universal-LPC-spritesheet-master/Universal-LPC-spritesheet-master/body/male/light.png");
+        const columns: usize = 13;
+        let layout = TextureAtlasLayout::from_grid(Vec2::new(64.0, 64.0), columns, 21, None, None);
+        let texture_atlas_layout = texture_atlas_layouts.add(layout);
+        // Use only the subset of sprites in the sheet that make up the run animation
+        let animation_indices = AnimationIndices { first: columns * 2, last: columns * 2 };
+        let atlas = TextureAtlas {
+            layout: texture_atlas_layout.clone(),
+            index: animation_indices.first,
+        };
+        info!("Spawning sprite");
+        commands.entity(entity).insert((
+            AnimationTimer(Timer::from_seconds(0.3, TimerMode::Repeating)),
+            animation_indices,
+            SpriteSheetBundle {
+                transform: Transform::from_xyz(0., 0., 17.).with_scale(Vec3::splat(2.0)),
+                texture: texture.clone(),
+                atlas,
+                ..default()
+            },
+            // IMPORTANT: this lets the server know that the entity is pre-predicted
+            // when the server replicates this entity; we will get a Confirmed entity which will use this entity
+            // as the Predicted version
+            ShouldBePredicted::default(),
+        ));
     }
 }
