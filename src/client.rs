@@ -122,7 +122,7 @@ fn spawn_player(
             AnimationTimer(Timer::from_seconds(0.3, TimerMode::Repeating)),
             animation_indices,
             SpriteSheetBundle {
-                transform: Transform::from_xyz(0., 0., 17.).with_scale(Vec3::splat(2.0)),
+                transform: Transform::from_xyz(0., 0., 17.).with_scale(Vec3::splat(1.0)),
                 texture: texture.clone(),
                 atlas,
                 ..default()
