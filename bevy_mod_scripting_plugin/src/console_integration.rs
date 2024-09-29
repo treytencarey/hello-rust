@@ -1,4 +1,4 @@
-use bevy::{ecs::event::Events, prelude::*};
+use bevy::{ecs::event::Events, log::LogPlugin, prelude::*};
 use bevy_console::{AddConsoleCommand, ConsoleCommand, ConsolePlugin, PrintConsoleLine};
 use bevy_mod_scripting::prelude::*;
 use clap::Parser;
@@ -156,10 +156,11 @@ pub struct DeleteScriptCmd {
     pub entity_id: u32,
 }
 
-pub(crate) struct ScriptMain;
-impl Plugin for ScriptMain {
+#[derive(Clone)]
+pub struct ScriptPlugin;
+
+impl Plugin for ScriptPlugin {
     fn build(&self, app: &mut App) {
-        // Add your network systems, resources, etc. here
         app.add_plugins(ScriptingPlugin)
             .add_plugins(ConsolePlugin)
             // register bevy_console commands
@@ -173,7 +174,5 @@ impl Plugin for ScriptMain {
             // add your systems
             .add_systems(Update, trigger_on_update_lua)
             .add_systems(Update, forward_script_err_to_console);
-        
-        info!("press '~' to open the console. Type in `run_script \"console_integration.lua\"` to run example script!");
     }
 }

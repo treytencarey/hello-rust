@@ -1,33 +1,21 @@
-use std::ops::Deref;
-
+use bevy::color::palettes::css::GREEN;
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
 use leafwing_input_manager::action_state::ActionState;
-use lightyear::client::components::Confirmed;
+use std::ops::Deref;
 
+use lightyear::client::components::Confirmed;
 use lightyear::prelude::*;
 
 use crate::protocol::*;
 
-pub fn shared_config(mode: Mode) -> SharedConfig {
-    SharedConfig {
-        client_send_interval: Duration::default(),
-        // server_send_interval: Duration::default(),
-        server_send_interval: Duration::from_millis(40),
-        tick: TickConfig {
-            // right now, we NEED the tick_duration to be smaller than the send_interval
-            // (otherwise we can send multiple packets for the same tick at different frames)
-            tick_duration: Duration::from_secs_f64(1.0 / 64.0),
-        },
-        mode,
-    }
-}
-
+#[derive(Clone)]
 pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(ProtocolPlugin);
         if app.is_plugin_added::<RenderPlugin>() {
             app.add_systems(Startup, init);
             app.add_systems(Update, (draw_boxes, draw_circles));
@@ -76,7 +64,7 @@ pub(crate) fn draw_boxes(
 /// System that draws circles
 pub(crate) fn draw_circles(mut gizmos: Gizmos, circles: Query<&Position, With<CircleMarker>>) {
     for position in &circles {
-        gizmos.circle_2d(*position.deref(), 1.0, Color::GREEN);
+        gizmos.circle_2d(*position.deref(), 1.0, GREEN);
     }
 }
 

@@ -12,8 +12,9 @@ fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
     });
 }
 
-pub(crate) struct TilesMain;
-impl Plugin for TilesMain {
+pub struct TilesPlugin;
+
+impl Plugin for TilesPlugin {
     fn build(&self, app: &mut App) {
         // Add your network systems, resources, etc. here
         app.add_plugins(TilemapPlugin)

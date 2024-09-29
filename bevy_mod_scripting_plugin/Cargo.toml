@@ -1,0 +1,11 @@
+[package]
+name = "bevy_mod_scripting_plugin"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy_mod_scripting = { path = "../../bevy_mod_scripting", features = ["lua54", "lua_script_api"] }
+bevy_script_api = { path = "../../bevy_mod_scripting/crates/bevy_script_api" }
+bevy_console = "0.12"
+bevy = { version = "0.14", default-features = false }
+clap = { version = "4.1", features = ["derive"] }

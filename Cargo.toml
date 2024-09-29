@@ -1,40 +1,17 @@
 [package]
-name = "hello"
-edition = "2021"
+name = "hello2"
 version = "0.1.0"
+edition = "2021"
 
-[features]
-metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
-mock_time = ["lightyear/mock_time"]
+[workspace]
+members = [
+    "lightyear/interest_management",
+    "bevy_mod_scripting_plugin",
+    "bevy_ecs_tilemap_plugin"
+]
 
 [dependencies]
-bevy_mod_scripting = { path = "../bevy_mod_scripting", features = ["lua54", "lua_script_api"] }
-bevy_script_api = { path = "../bevy_mod_scripting/crates/bevy_script_api" }
-bevy_console = "0.11.1"
-leafwing-input-manager = "0.13"
-lightyear = { path = "../lightyear/lightyear", features = [
-  "webtransport",
-  "websocket",
-  "render",
-  "leafwing"
-] }
-bevy_ecs_tilemap = { path = "../bevy_ecs_tilemap" }
-async-compat = "0.2.3"
-serde = { version = "1.0.188", features = ["derive"] }
-tracing = "0.1"
-tracing-subscriber = "0.3.17"
-bevy = { version = "0.13.0", features = ["bevy_core_pipeline"] }
-derive_more = { version = "0.99", features = ["add", "mul"] }
-rand = "0.8.5"
-clap = { version = "4.4", features = ["derive"] }
-mock_instant = "0.3"
-metrics-exporter-prometheus = { version = "0.13.0", optional = true }
-bevy-inspector-egui = "0.23"
-cfg-if = "1.0.0"
-crossbeam-channel = "0.5.11"
-log = "0.4"
-ldtk_rust = { version = "0.6" }
-env_logger = "0.10"
-serde_json = { version = "1.0" }
-tiled = { version = "0.11.0", default-features = false }
-thiserror = { version = "1.0" }
+bevy = { version = "0.14.2", default-features = false }
+interest_management = { path = "lightyear/interest_management" }
+bevy_mod_scripting_plugin = { path = "bevy_mod_scripting_plugin" }
+bevy_ecs_tilemap_plugin = { path = "bevy_ecs_tilemap_plugin" }
