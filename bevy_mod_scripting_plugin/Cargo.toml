@@ -9,3 +9,7 @@ bevy_script_api = { path = "../../bevy_mod_scripting/crates/bevy_script_api" }
 bevy_console = "0.12"
 bevy = { version = "0.14", default-features = false }
 clap = { version = "4.1", features = ["derive"] }
+
+[lib]
+name = "bevy_mod_scripting_plugin"
+path = "src/lib.rs"

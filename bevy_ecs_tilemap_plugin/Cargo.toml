@@ -22,3 +22,7 @@ env_logger = "0.10"
 serde_json = { version = "1.0" }
 tiled = { version = "0.11.0", default-features = false }
 thiserror = { version = "1.0" }
+
+[lib]
+name = "bevy_ecs_tilemap_plugin"
+path = "src/lib.rs"
