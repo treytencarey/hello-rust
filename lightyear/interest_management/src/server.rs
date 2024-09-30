@@ -231,7 +231,7 @@ pub(crate) fn interest_management(
 pub(crate) fn movement(
     mut position_query: Query<(&mut Position, &ActionState<Inputs>), Without<InputMap<Inputs>>>,
 ) {
-    for (position, input) in position_query.iter_mut() {
-        shared_movement_behaviour(position, input);
+    for (mut position, input) in position_query.iter_mut() {
+        shared_movement_behaviour(&mut position, input);
     }
 }

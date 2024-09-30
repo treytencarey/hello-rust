@@ -28,7 +28,7 @@ fn init(mut commands: Commands) {
 }
 
 // This system defines how we update the player's positions when we receive an input
-pub(crate) fn shared_movement_behaviour(mut position: Mut<Position>, input: &ActionState<Inputs>) {
+pub(crate) fn shared_movement_behaviour(mut position: &mut Position, input: &ActionState<Inputs>) {
     const MOVE_SPEED: f32 = 10.0;
     if input.pressed(&Inputs::Up) {
         position.y += MOVE_SPEED;
