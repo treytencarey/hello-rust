@@ -93,6 +93,9 @@ pub(crate) fn handle_connections(
         let entity = commands.spawn(
             PlayerBundle::new(client_id, position)
         ).id();
+        let animation_entity = commands.spawn(
+            AnimationBundle::new(client_id, entity)
+        ).id();
         
         // we can control the player visibility in a more static manner by using rooms
         // we add all clients to a room, as well as all player entities
@@ -101,7 +104,7 @@ pub(crate) fn handle_connections(
         room_manager.add_entity(entity, room_id);
 
         // TODO TC - Test. Remove.
-        commands.entity(entity).insert(TimerComponent(Timer::from_seconds(5.0, TimerMode::Once)));
+        commands.entity(animation_entity).insert(TimerComponent(Timer::from_seconds(5.0, TimerMode::Once)));
     }
 }
 
@@ -116,7 +119,7 @@ pub(crate) fn check_timers(mut commands: Commands,
         timer.0.tick(time.delta());
 
         if timer.0.finished() {
-            info!("Timer finished {}", animation_indices.first);
+            info!("Timer finished {}", animation_indices.last);
             animation_indices.first = 3;
             commands.entity(entity).remove::<TimerComponent>();
         }

@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use interest_management::{client::{ClientConnection, Interpolated, NetClient, Predicted}, protocol::{AnimationIndices, AnimationSpriteBundle, AnimationTimer, PlayerTexture, PlayerTextureAtlasLayout, Position}};
+use interest_management::{client::{ClientConnection, Interpolated, NetClient, Predicted}, protocol::{AnimationIndices, AnimationSpriteBundle, AnimationTimer, PlayerParent, PlayerTexture, PlayerTextureAtlasLayout, Position}};
 
 pub struct PlayerPlugin;
 
@@ -18,14 +18,18 @@ impl Plugin for PlayerPlugin {
 fn player_spawn(
     connection: Res<ClientConnection>,
     mut commands: Commands,
+    mut parent_query: Query<Entity>,
     mut character_query: Query<
-        (Entity, &AnimationTimer, &AnimationIndices, &AnimationSpriteBundle, &PlayerTextureAtlasLayout),
+        (&PlayerParent, &AnimationTimer, &AnimationIndices, &AnimationSpriteBundle, &PlayerTextureAtlasLayout),
         (Or<(Added<Predicted>, Added<Interpolated>)>),
     >,
     asset_server: Res<AssetServer>,
     mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
 ) {
-    for (entity, animation_timer, animation_indices, animation_sprite_bundle, atlas_layout) in &mut character_query {
+    for (parent, animation_timer, animation_indices, animation_sprite_bundle, atlas_layout) in &mut character_query {
+        let (parent_entity) = parent_query
+            .get_mut(parent.0)
+            .expect("Tail entity has no parent entity!");
         // spawn extra sprites, etc.
         let texture = asset_server.load(animation_sprite_bundle.texture.0.clone());
         let layout = TextureAtlasLayout::from_grid(atlas_layout.0.tile_size, atlas_layout.0.columns, atlas_layout.0.rows, None, atlas_layout.0.offset);
@@ -36,8 +40,8 @@ fn player_spawn(
         };
 
         let client_id = connection.id();
-        info!(?entity, ?client_id, "Adding animation to character");
-        commands.entity(entity).insert((
+        info!(?parent, ?client_id, "Adding animation to character");
+        commands.entity(parent_entity).insert((
             animation_timer.clone(),
             animation_indices.clone(),
             SpriteBundle {

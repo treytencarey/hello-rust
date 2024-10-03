@@ -65,12 +65,19 @@ pub(crate) struct PlayerBundle {
     position: Position,
     last_position: LastPosition, // used for checking if the position has crossed a grid boundary
     color: PlayerColor,
+    replicate: Replicate,
+    action_state: ActionState<Inputs>,
+}
+
+// Animation
+#[derive(Bundle)]
+pub(crate) struct AnimationBundle {
+    parent: PlayerParent,
     animation_timer: AnimationTimer,
     animation_indices: AnimationIndices,
     animation_sprite_bundle: AnimationSpriteBundle,
     atlas: PlayerTextureAtlasLayout,
     replicate: Replicate,
-    action_state: ActionState<Inputs>,
 }
 
 impl PlayerBundle {
@@ -87,24 +94,12 @@ impl PlayerBundle {
             },
             // use network relevance for replication
             relevance_mode: NetworkRelevanceMode::InterestManagement,
+            group: ReplicationGroup::default(),
             ..default()
         };
 
         // Use only the subset of sprites in the sheet that make up the run animation
-        let animation_indices = AnimationIndices { first: 0, last: 3 };
         Self {
-            animation_timer: AnimationTimer(Timer::from_seconds(0.3, TimerMode::Repeating)),
-            animation_indices,
-            animation_sprite_bundle: AnimationSpriteBundle {
-                transform: Transform::from_xyz(0., 0., 17.).with_scale(Vec3::splat(2.0)),
-                texture: PlayerTexture("EPIC RPG World - Ancient Ruins V 1.9.1/ERW - Ancient Ruins V 1.9.1/Characters/silly luck creature-idle.png".to_string()),
-            },
-            atlas: PlayerTextureAtlasLayout(PlayerTextureLayout {
-                tile_size: UVec2::new(96, 85),
-                columns: 4,
-                rows: 1,
-                offset: None,
-            }),
             id: PlayerId(id),
             position: Position(position),
             last_position: LastPosition(None),
@@ -126,6 +121,54 @@ impl PlayerBundle {
             (Inputs::Delete, KeyCode::Backspace),
             (Inputs::Spawn, KeyCode::Space),
         ])
+    }
+}
+
+impl AnimationBundle {
+    pub(crate) fn new(id: ClientId, parent: Entity) -> Self {
+        let animation_indices = AnimationIndices { first: 0, last: 3 };
+        Self {
+            parent: PlayerParent(parent),
+            animation_timer: AnimationTimer(Timer::from_seconds(0.3, TimerMode::Repeating)),
+            animation_indices,
+            animation_sprite_bundle: AnimationSpriteBundle {
+                transform: Transform::from_xyz(0., 0., 17.).with_scale(Vec3::splat(2.0)),
+                texture: PlayerTexture("EPIC RPG World - Ancient Ruins V 1.9.1/ERW - Ancient Ruins V 1.9.1/Characters/silly luck creature-idle.png".to_string()),
+            },
+            atlas: PlayerTextureAtlasLayout(PlayerTextureLayout {
+                tile_size: UVec2::new(96, 85),
+                columns: 4,
+                rows: 1,
+                offset: None,
+            }),
+            replicate: Replicate {
+                sync: SyncTarget {
+                    prediction: NetworkTarget::Single(id),
+                    interpolation: NetworkTarget::AllExceptSingle(id),
+                },
+                controlled_by: ControlledBy {
+                    target: NetworkTarget::Single(id),
+                    ..default()
+                },
+                // replicate this entity within the same replication group as the parent
+                group: ReplicationGroup::default().set_id(parent.to_bits()),
+                ..default()
+            },
+        }
+    }
+}
+
+// Example of a component that contains an entity.
+// This component, when replicated, needs to have the inner entity mapped from the Server world
+// to the client World.
+// This can be done by calling `app.add_component_map_entities::<PlayerParent>()` in your protocol,
+// and deriving the `MapEntities` trait for the component.
+#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq, Reflect)]
+pub struct PlayerParent(pub Entity);
+
+impl MapEntities for PlayerParent {
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
+        self.0 = entity_mapper.map_entity(self.0);
     }
 }
 
@@ -239,6 +282,11 @@ impl Plugin for ProtocolPlugin {
             .add_interpolation(ComponentSyncMode::Simple);
 
         app.register_component::<CircleMarker>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
+
+        app.register_component::<PlayerParent>(ChannelDirection::ServerToClient)
+            .add_map_entities()
             .add_prediction(ComponentSyncMode::Once)
             .add_interpolation(ComponentSyncMode::Once);
         // channels
