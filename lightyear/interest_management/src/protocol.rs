@@ -36,6 +36,12 @@ pub struct AnimationIndices {
 #[derive(Component, Deref, DerefMut, Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct AnimationTimer(pub Timer);
 
+#[derive(Component, Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct AnimationSpriteBundle {
+    pub transform: Transform,
+    pub texture: PlayerTexture,
+}
+
 fn animate_sprite(
     time: Res<Time>,
     mut query: Query<(&AnimationIndices, &mut AnimationTimer, &mut TextureAtlas)>,
@@ -61,8 +67,7 @@ pub(crate) struct PlayerBundle {
     color: PlayerColor,
     animation_timer: AnimationTimer,
     animation_indices: AnimationIndices,
-    sprite_bundle_transform: Transform,
-    sprite_bundle_texture: PlayerTexture,
+    animation_sprite_bundle: AnimationSpriteBundle,
     atlas: PlayerTextureAtlasLayout,
     replicate: Replicate,
     action_state: ActionState<Inputs>,
@@ -90,8 +95,10 @@ impl PlayerBundle {
         Self {
             animation_timer: AnimationTimer(Timer::from_seconds(0.3, TimerMode::Repeating)),
             animation_indices,
-            sprite_bundle_transform: Transform::from_xyz(0., 0., 17.).with_scale(Vec3::splat(2.0)),
-            sprite_bundle_texture: PlayerTexture("EPIC RPG World - Ancient Ruins V 1.9.1/ERW - Ancient Ruins V 1.9.1/Characters/silly luck creature-idle.png".to_string()),
+            animation_sprite_bundle: AnimationSpriteBundle {
+                transform: Transform::from_xyz(0., 0., 17.).with_scale(Vec3::splat(2.0)),
+                texture: PlayerTexture("EPIC RPG World - Ancient Ruins V 1.9.1/ERW - Ancient Ruins V 1.9.1/Characters/silly luck creature-idle.png".to_string()),
+            },
             atlas: PlayerTextureAtlasLayout(PlayerTextureLayout {
                 tile_size: UVec2::new(96, 85),
                 columns: 4,
@@ -219,7 +226,7 @@ impl Plugin for ProtocolPlugin {
             .add_prediction(ComponentSyncMode::Simple)
             .add_interpolation(ComponentSyncMode::Simple);
         
-        app.register_component::<PlayerTexture>(ChannelDirection::ServerToClient)
+        app.register_component::<AnimationSpriteBundle>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Simple)
             .add_interpolation(ComponentSyncMode::Simple);
 
@@ -228,10 +235,6 @@ impl Plugin for ProtocolPlugin {
             .add_interpolation(ComponentSyncMode::Simple);
 
         app.register_component::<AnimationTimer>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Simple)
-            .add_interpolation(ComponentSyncMode::Simple);
-
-        app.register_component::<Transform>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Simple)
             .add_interpolation(ComponentSyncMode::Simple);
 

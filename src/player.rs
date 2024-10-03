@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use interest_management::{client::{ClientConnection, Interpolated, NetClient, Predicted}, protocol::{AnimationIndices, AnimationTimer, PlayerTexture, PlayerTextureAtlasLayout, Position}};
+use interest_management::{client::{ClientConnection, Interpolated, NetClient, Predicted}, protocol::{AnimationIndices, AnimationSpriteBundle, AnimationTimer, PlayerTexture, PlayerTextureAtlasLayout, Position}};
 
 pub struct PlayerPlugin;
 
@@ -19,15 +19,15 @@ fn player_spawn(
     connection: Res<ClientConnection>,
     mut commands: Commands,
     mut character_query: Query<
-        (Entity, &AnimationTimer, &AnimationIndices, &PlayerTexture, &PlayerTextureAtlasLayout),
+        (Entity, &AnimationTimer, &AnimationIndices, &AnimationSpriteBundle, &PlayerTextureAtlasLayout),
         (Or<(Added<Predicted>, Added<Interpolated>)>),
     >,
     asset_server: Res<AssetServer>,
     mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
 ) {
-    for (entity, animation_timer, animation_indices, sprite_bundle_texture, atlas_layout) in &mut character_query {
+    for (entity, animation_timer, animation_indices, animation_sprite_bundle, atlas_layout) in &mut character_query {
         // spawn extra sprites, etc.
-        let texture = asset_server.load(sprite_bundle_texture.0.clone());
+        let texture = asset_server.load(animation_sprite_bundle.texture.0.clone());
         let layout = TextureAtlasLayout::from_grid(atlas_layout.0.tile_size, atlas_layout.0.columns, atlas_layout.0.rows, None, atlas_layout.0.offset);
         let texture_atlas_layout = texture_atlas_layouts.add(layout);
         let atlas = TextureAtlas {
