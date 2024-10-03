@@ -49,15 +49,16 @@ pub(crate) fn shared_movement_behaviour(mut position: &mut Position, input: &Act
 /// This time we will only draw the predicted/interpolated entities
 pub(crate) fn draw_boxes(
     mut gizmos: Gizmos,
-    players: Query<(&Position, &PlayerColor), Without<Confirmed>>,
+    mut players: Query<(&Position, &mut Transform, &PlayerColor), Without<Confirmed>>,
 ) {
-    for (position, color) in &players {
+    for (position, mut transform, color) in players.iter_mut() {
         gizmos.rect(
             Vec3::new(position.x, position.y, 0.0),
             Quat::IDENTITY,
             Vec2::ONE * 50.0,
             color.0,
         );
+        transform.translation = Vec3::new(position.x, position.y, 0.0);
     }
 }
 
