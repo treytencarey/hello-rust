@@ -27,13 +27,13 @@ impl Plugin for PlayerPlugin {
     }
 }
 
-#[derive(Component)]
+#[derive(Component, Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct AnimationIndices {
     pub first: usize,
     pub last: usize,
 }
 
-#[derive(Component, Deref, DerefMut)]
+#[derive(Component, Deref, DerefMut, Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct AnimationTimer(pub Timer);
 
 fn animate_sprite(
@@ -59,6 +59,11 @@ pub(crate) struct PlayerBundle {
     position: Position,
     last_position: LastPosition, // used for checking if the position has crossed a grid boundary
     color: PlayerColor,
+    animation_timer: AnimationTimer,
+    animation_indices: AnimationIndices,
+    sprite_bundle_transform: Transform,
+    sprite_bundle_texture: PlayerTexture,
+    atlas: PlayerTextureAtlasLayout,
     replicate: Replicate,
     action_state: ActionState<Inputs>,
 }
@@ -79,7 +84,20 @@ impl PlayerBundle {
             relevance_mode: NetworkRelevanceMode::InterestManagement,
             ..default()
         };
+
+        // Use only the subset of sprites in the sheet that make up the run animation
+        let animation_indices = AnimationIndices { first: 0, last: 3 };
         Self {
+            animation_timer: AnimationTimer(Timer::from_seconds(0.3, TimerMode::Repeating)),
+            animation_indices,
+            sprite_bundle_transform: Transform::from_xyz(0., 0., 17.).with_scale(Vec3::splat(2.0)),
+            sprite_bundle_texture: PlayerTexture("EPIC RPG World - Ancient Ruins V 1.9.1/ERW - Ancient Ruins V 1.9.1/Characters/silly luck creature-idle.png".to_string()),
+            atlas: PlayerTextureAtlasLayout(PlayerTextureLayout {
+                tile_size: UVec2::new(96, 85),
+                columns: 4,
+                rows: 1,
+                offset: None,
+            }),
             id: PlayerId(id),
             position: Position(position),
             last_position: LastPosition(None),
@@ -135,6 +153,20 @@ impl Mul<f32> for &Position {
 pub struct PlayerColor(pub(crate) Color);
 
 #[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
+pub struct PlayerTextureAtlasLayout(pub PlayerTextureLayout);
+
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
+pub struct PlayerTextureLayout {
+    pub tile_size: UVec2,
+    pub columns: u32,
+    pub rows: u32,
+    pub offset: Option<UVec2>
+}
+
+#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
+pub struct PlayerTexture(pub String);
+
+#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
 // Marker component
 pub struct CircleMarker;
 
@@ -180,6 +212,26 @@ impl Plugin for ProtocolPlugin {
             .add_linear_interpolation_fn();
 
         app.register_component::<PlayerColor>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
+
+        app.register_component::<PlayerTextureAtlasLayout>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
+        
+        app.register_component::<PlayerTexture>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
+
+        app.register_component::<AnimationIndices>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
+
+        app.register_component::<AnimationTimer>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
+
+        app.register_component::<Transform>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once)
             .add_interpolation(ComponentSyncMode::Once);
 
