@@ -216,24 +216,24 @@ impl Plugin for ProtocolPlugin {
             .add_interpolation(ComponentSyncMode::Once);
 
         app.register_component::<PlayerTextureAtlasLayout>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
+            .add_prediction(ComponentSyncMode::Simple)
+            .add_interpolation(ComponentSyncMode::Simple);
         
         app.register_component::<PlayerTexture>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
+            .add_prediction(ComponentSyncMode::Simple)
+            .add_interpolation(ComponentSyncMode::Simple);
 
         app.register_component::<AnimationIndices>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
+            .add_prediction(ComponentSyncMode::Simple)
+            .add_interpolation(ComponentSyncMode::Simple);
 
         app.register_component::<AnimationTimer>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
+            .add_prediction(ComponentSyncMode::Simple)
+            .add_interpolation(ComponentSyncMode::Simple);
 
         app.register_component::<Transform>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
+            .add_prediction(ComponentSyncMode::Simple)
+            .add_interpolation(ComponentSyncMode::Simple);
 
         app.register_component::<CircleMarker>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once)

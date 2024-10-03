@@ -32,6 +32,7 @@ impl Plugin for ExampleServerPlugin {
                 // we are buffering replication messages
                 interest_management.in_set(ReplicationSet::SendMessages),
                 receive_message,
+                check_timers, // TODO TC - Test. Remove.
             ),
         );
     }
@@ -91,13 +92,34 @@ pub(crate) fn handle_connections(
         let client_id = connection.client_id;
         let entity = commands.spawn(
             PlayerBundle::new(client_id, position)
-        );
+        ).id();
         
         // we can control the player visibility in a more static manner by using rooms
         // we add all clients to a room, as well as all player entities
         // this means that all clients will be able to see all player entities
         room_manager.add_client(client_id, room_id);
-        room_manager.add_entity(entity.id(), room_id);
+        room_manager.add_entity(entity, room_id);
+
+        // TODO TC - Test. Remove.
+        commands.entity(entity).insert(TimerComponent(Timer::from_seconds(5.0, TimerMode::Once)));
+    }
+}
+
+// TODO TC - Test. Remove.
+#[derive(Component)]
+pub struct TimerComponent(Timer);
+pub(crate) fn check_timers(mut commands: Commands,
+    mut cooldowns: Query<(Entity, &mut AnimationIndices, &mut TimerComponent)>,
+    time: Res<Time>
+) {
+    for (entity, mut animation_indices, mut timer) in &mut cooldowns {
+        timer.0.tick(time.delta());
+
+        if timer.0.finished() {
+            info!("Timer finished {}", animation_indices.first);
+            animation_indices.first = 3;
+            commands.entity(entity).remove::<TimerComponent>();
+        }
     }
 }
 
