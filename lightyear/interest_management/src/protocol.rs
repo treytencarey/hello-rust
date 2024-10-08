@@ -18,6 +18,11 @@ use UserAction;
 
 use crate::shared::color_from_id;
 
+// For prediction, we want everything entity that is predicted to be part of the same replication group
+// This will make sure that they will be replicated in the same message and that all the entities in the group
+// will always be consistent (= on the same tick)
+pub const REPLICATION_GROUP: ReplicationGroup = ReplicationGroup::new_id(1);
+
 /// Plugin for spawning the player and controlling them.
 pub struct PlayerPlugin;
 
@@ -78,6 +83,15 @@ pub(crate) struct AnimationBundle {
     animation_sprite_bundle: AnimationSpriteBundle,
     atlas: PlayerTextureAtlasLayout,
     replicate: Replicate,
+}
+
+// Level
+#[derive(Bundle)]
+pub(crate) struct LevelBundle {
+    position: Position,
+    last_position: LastPosition,
+    replicate: Replicate,
+    filename: LevelFileName,
 }
 
 impl PlayerBundle {
@@ -158,10 +172,27 @@ impl AnimationBundle {
     }
 }
 
-// Example of a component that contains an entity.
-// This component, when replicated, needs to have the inner entity mapped from the Server world
-// to the client World.
-// This can be done by calling `app.add_component_map_entities::<PlayerParent>()` in your protocol,
+impl LevelBundle {
+    pub(crate) fn new(position: Vec2, filename: String) -> Self {
+        let sync_target = SyncTarget {
+            prediction: NetworkTarget::All,
+            ..default()
+        };
+        let replicate = Replicate {
+            sync: sync_target,
+            relevance_mode: NetworkRelevanceMode::InterestManagement,
+            group: REPLICATION_GROUP,
+            ..default()
+        };
+        Self {
+            replicate,
+            position: Position(position),
+            last_position: LastPosition(None),
+            filename: LevelFileName(filename)
+        }
+    }
+}
+
 // and deriving the `MapEntities` trait for the component.
 #[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq, Reflect)]
 pub struct PlayerParent(pub Entity);
@@ -216,10 +247,6 @@ pub struct PlayerTextureLayout {
 #[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct PlayerTexture(pub String);
 
-#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
-// Marker component
-pub struct CircleMarker;
-
 // Channels
 
 #[derive(Channel)]
@@ -229,6 +256,9 @@ pub struct Channel1;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Message1(pub usize);
+
+#[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
+pub struct LevelFileName(pub String);
 
 // Inputs
 
@@ -281,7 +311,7 @@ impl Plugin for ProtocolPlugin {
             .add_prediction(ComponentSyncMode::Simple)
             .add_interpolation(ComponentSyncMode::Simple);
 
-        app.register_component::<CircleMarker>(ChannelDirection::ServerToClient)
+        app.register_component::<LevelFileName>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once)
             .add_interpolation(ComponentSyncMode::Once);
 

@@ -202,6 +202,7 @@ pub fn process_loaded_maps(
         &Handle<TiledMap>,
         &mut TiledLayersStorage,
         &TilemapRenderSettings,
+        &Transform,
     )>,
     new_maps: Query<&Handle<TiledMap>, Added<Handle<TiledMap>>>,
 ) {
@@ -232,7 +233,7 @@ pub fn process_loaded_maps(
     }
 
     for changed_map in changed_maps.iter() {
-        for (map_handle, mut layer_storage, render_settings) in map_query.iter_mut() {
+        for (map_handle, mut layer_storage, render_settings, transform) in map_query.iter_mut() {
             // only deal with currently changed map
             if map_handle.id() != *changed_map {
                 continue;
@@ -377,12 +378,7 @@ pub fn process_loaded_maps(
                             texture: tilemap_texture.clone(),
                             tile_size,
                             spacing: tile_spacing,
-                            transform: get_tilemap_center_transform(
-                                &map_size,
-                                &grid_size,
-                                &map_type,
-                                layer_index as f32,
-                            ) * Transform::from_xyz(offset_x, -offset_y, 0.0),
+                            transform: *transform,
                             map_type,
                             render_settings: *render_settings,
                             ..Default::default()
