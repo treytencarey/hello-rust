@@ -18,6 +18,51 @@ use UserAction;
 
 use crate::shared::color_from_id;
 
+// For prediction, we want everything entity that is predicted to be part of the same replication group
+// This will make sure that they will be replicated in the same message and that all the entities in the group
+// will always be consistent (= on the same tick)
+pub const REPLICATION_GROUP: ReplicationGroup = ReplicationGroup::new_id(1);
+
+/// Plugin for spawning the player and controlling them.
+pub struct PlayerPlugin;
+
+impl Plugin for PlayerPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(Update, animate_sprite);
+    }
+}
+
+#[derive(Component, Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct AnimationIndices {
+    pub first: usize,
+    pub last: usize,
+}
+
+#[derive(Component, Deref, DerefMut, Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct AnimationTimer(pub Timer);
+
+#[derive(Component, Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct AnimationSpriteBundle {
+    pub transform: Transform,
+    pub texture: PlayerTexture,
+}
+
+fn animate_sprite(
+    time: Res<Time>,
+    mut query: Query<(&AnimationIndices, &mut AnimationTimer, &mut TextureAtlas)>,
+) {
+    for (indices, mut timer, mut atlas) in &mut query {
+        timer.tick(time.delta());
+        if timer.just_finished() {
+            atlas.index = if atlas.index == indices.last {
+                indices.first
+            } else {
+                atlas.index + 1
+            };
+        }
+    }
+}
+
 // Player
 #[derive(Bundle)]
 pub(crate) struct PlayerBundle {
@@ -27,6 +72,26 @@ pub(crate) struct PlayerBundle {
     color: PlayerColor,
     replicate: Replicate,
     action_state: ActionState<Inputs>,
+}
+
+// Animation
+#[derive(Bundle)]
+pub(crate) struct AnimationBundle {
+    parent: PlayerParent,
+    animation_timer: AnimationTimer,
+    animation_indices: AnimationIndices,
+    animation_sprite_bundle: AnimationSpriteBundle,
+    atlas: PlayerTextureAtlasLayout,
+    replicate: Replicate,
+}
+
+// Level
+#[derive(Bundle)]
+pub(crate) struct LevelBundle {
+    position: Position,
+    last_position: LastPosition,
+    replicate: Replicate,
+    filename: LevelFileName,
 }
 
 impl PlayerBundle {
@@ -70,6 +135,71 @@ impl PlayerBundle {
     }
 }
 
+impl AnimationBundle {
+    pub(crate) fn new(id: ClientId, parent: Entity) -> Self {
+        let animation_indices = AnimationIndices { first: 0, last: 3 };
+        Self {
+            parent: PlayerParent(parent),
+            animation_timer: AnimationTimer(Timer::from_seconds(0.3, TimerMode::Repeating)),
+            animation_indices,
+            animation_sprite_bundle: AnimationSpriteBundle {
+                transform: Transform::from_xyz(0., 0., 17.).with_scale(Vec3::splat(2.0)),
+                texture: PlayerTexture("EPIC RPG World - Ancient Ruins V 1.9.1/ERW - Ancient Ruins V 1.9.1/Characters/silly luck creature-idle.png".to_string()),
+            },
+            atlas: PlayerTextureAtlasLayout(PlayerTextureLayout {
+                tile_size: UVec2::new(96, 85),
+                columns: 4,
+                rows: 1,
+                offset: None,
+            }),
+            replicate: Replicate {
+                sync: SyncTarget {
+                    prediction: NetworkTarget::Single(id),
+                    interpolation: NetworkTarget::AllExceptSingle(id),
+                },
+                controlled_by: ControlledBy {
+                    target: NetworkTarget::Single(id),
+                    ..default()
+                },
+                // replicate this entity within the same replication group as the parent
+                group: ReplicationGroup::default().set_id(parent.to_bits()),
+                ..default()
+            },
+        }
+    }
+}
+
+impl LevelBundle {
+    pub(crate) fn new(position: Vec2, filename: String) -> Self {
+        let sync_target = SyncTarget {
+            prediction: NetworkTarget::All,
+            ..default()
+        };
+        let replicate = Replicate {
+            sync: sync_target,
+            relevance_mode: NetworkRelevanceMode::InterestManagement,
+            group: REPLICATION_GROUP,
+            ..default()
+        };
+        Self {
+            replicate,
+            position: Position(position),
+            last_position: LastPosition(None),
+            filename: LevelFileName(filename)
+        }
+    }
+}
+
+// and deriving the `MapEntities` trait for the component.
+#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq, Reflect)]
+pub struct PlayerParent(pub Entity);
+
+impl MapEntities for PlayerParent {
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
+        self.0 = entity_mapper.map_entity(self.0);
+    }
+}
+
 // Components
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -101,8 +231,18 @@ impl Mul<f32> for &Position {
 pub struct PlayerColor(pub(crate) Color);
 
 #[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
-// Marker component
-pub struct CircleMarker;
+pub struct PlayerTextureAtlasLayout(pub PlayerTextureLayout);
+
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
+pub struct PlayerTextureLayout {
+    pub tile_size: UVec2,
+    pub columns: u32,
+    pub rows: u32,
+    pub offset: Option<UVec2>
+}
+
+#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
+pub struct PlayerTexture(pub String);
 
 // Channels
 
@@ -113,6 +253,9 @@ pub struct Channel1;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Message1(pub usize);
+
+#[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
+pub struct LevelFileName(pub String);
 
 // Inputs
 
@@ -149,7 +292,23 @@ impl Plugin for ProtocolPlugin {
             .add_prediction(ComponentSyncMode::Once)
             .add_interpolation(ComponentSyncMode::Once);
 
-        app.register_component::<CircleMarker>(ChannelDirection::ServerToClient)
+        app.register_component::<PlayerTextureAtlasLayout>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Simple)
+            .add_interpolation(ComponentSyncMode::Simple);
+        
+        app.register_component::<AnimationSpriteBundle>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Simple)
+            .add_interpolation(ComponentSyncMode::Simple);
+
+        app.register_component::<AnimationIndices>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Simple)
+            .add_interpolation(ComponentSyncMode::Simple);
+
+        app.register_component::<AnimationTimer>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Simple)
+            .add_interpolation(ComponentSyncMode::Simple);
+
+        app.register_component::<LevelFileName>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once)
             .add_interpolation(ComponentSyncMode::Once);
         // channels

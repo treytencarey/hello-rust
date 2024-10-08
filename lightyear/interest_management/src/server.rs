@@ -7,12 +7,13 @@ use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
 use crate::protocol::*;
-use crate::shared;
 use crate::shared::{color_from_id, shared_movement_behaviour};
+use lightyear::connection::id::ClientId;
 
-const GRID_SIZE: f32 = 600.0;
+const TILE_SIZE: i32 = 16; // 16 pixels x 16 pixels
+const LEVEL_SIZE: i32 = 64; // 64 tiles x 64 tiles
+const GRID_SIZE: i32 = TILE_SIZE * LEVEL_SIZE; // 1024 pixels x 1024 pixels
 const VIEW_DISTANCE: i32 = 1; // in grid units (1 = can see 1 grid unit away)
-const NUM_CIRCLES: i32 = 10;
 
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin;
@@ -60,21 +61,18 @@ pub(crate) fn init(mut commands: Commands, mut room_manager: ResMut<RoomManager>
         }),
     );
 
-    // spawn dots in a grid
-    for x in -NUM_CIRCLES..NUM_CIRCLES {
-        for y in -NUM_CIRCLES..NUM_CIRCLES {
-            let position = Vec2::new(x as f32 * GRID_SIZE + GRID_SIZE / 2.0, y as f32 * GRID_SIZE + GRID_SIZE / 2.0);
-            let grid_entity = commands.spawn((
-                Position(position),
-                CircleMarker,
-                Replicate {
-                    // use rooms for replication
-                    relevance_mode: NetworkRelevanceMode::InterestManagement,
-                    ..default()
-                },
-            )).id();
+    const NUM_LEVELS: i32 = 3;
+    for x in -NUM_LEVELS..=NUM_LEVELS {
+        for y in -NUM_LEVELS..=NUM_LEVELS {
+            let position = Vec2::new((x * GRID_SIZE) as f32, (y * GRID_SIZE) as f32);
             let room_id = get_room_id_from_grid_position(get_grid_position(position));
-            room_manager.add_entity(grid_entity, room_id)
+            
+            let level_entity = commands.spawn(
+                LevelBundle::new(position, "map_0.tmx".to_owned())
+            ).id();
+
+            info!("Level spawned, added to room: {:?} {:?}", room_id.0, position);
+            room_manager.add_entity(level_entity, room_id);
         }
     }
 }
@@ -137,8 +135,8 @@ pub(crate) fn receive_message(mut messages: EventReader<MessageEvent<Message1>>)
 
 fn get_grid_position(position: Vec2) -> Vec2 {
     Vec2::new(
-        (position.x / GRID_SIZE).floor(),
-        (position.y / GRID_SIZE).floor(),
+        (position.x / GRID_SIZE as f32).floor(),
+        (position.y / GRID_SIZE as f32).floor(),
     )
 }
 
@@ -173,8 +171,8 @@ pub(crate) fn interest_management(
                             room_manager.add_client(client_id.0, room_id);
                             if dx == 0 && dy == 0 { // Only add the entity to the room if it's in the center grid
                                 room_manager.add_entity(entity, room_id);
+                                info!("Player spawned, added to center grid_pos {:?} (id: {:?})", view_grid_pos, room_id);
                             }
-                            info!("Player spawned, added to grid_pos {:?} (id: {:?})", view_grid_pos, room_id);
                         }
                     }
                 },
@@ -209,13 +207,13 @@ pub(crate) fn interest_management(
                         for last_grid_pos in last_grid_positions.iter().filter(|&pos| !grid_positions.contains(pos)) {
                             let room_id = get_room_id_from_grid_position(*last_grid_pos);
                             room_manager.remove_client(client_id.0, room_id);
-                            info!("Client removed from grid_pos {:?} (id: {:?})", last_grid_pos, room_id);
+                            // info!("Client removed from grid_pos {:?} (id: {:?})", last_grid_pos, room_id);
                         }
                         // Add the client to rooms that are now in view
                         for grid_pos in grid_positions.iter().filter(|&pos| !last_grid_positions.contains(pos)) {
                             let room_id = get_room_id_from_grid_position(*grid_pos);
                             room_manager.add_client(client_id.0, room_id);
-                            info!("Client added to grid_pos {:?} (id: {:?})", grid_pos, room_id);
+                            // info!("Client added to grid_pos {:?} (id: {:?})", grid_pos, room_id);
                         }
                     }
                 }
