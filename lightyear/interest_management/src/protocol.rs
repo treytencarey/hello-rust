@@ -257,6 +257,9 @@ pub struct Message1(pub usize);
 #[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
 pub struct LevelFileName(pub String);
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct LevelFile(pub Vec<u8>);
+
 // Inputs
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Hash, Reflect, Clone, Copy, Actionlike)]
@@ -309,6 +312,14 @@ impl Plugin for ProtocolPlugin {
             .add_interpolation(ComponentSyncMode::Simple);
 
         app.register_component::<LevelFileName>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
+
+        app.register_message::<LevelFile>(ChannelDirection::ClientToServer);
+        app.register_message::<LevelFile>(ChannelDirection::ServerToClient);
+
+        app.register_component::<PlayerParent>(ChannelDirection::ServerToClient)
+            .add_map_entities()
             .add_prediction(ComponentSyncMode::Once)
             .add_interpolation(ComponentSyncMode::Once);
         // channels

@@ -3258,6 +3258,7 @@ dependencies = [
  "bevy_ecs_tilemap_plugin",
  "bevy_mod_scripting_plugin",
  "interest_management",
+ "lightyear",
 ]
 
 [[package]]
