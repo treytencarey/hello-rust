@@ -13,5 +13,6 @@ members = [
 [dependencies]
 bevy = { version = "0.14.2", default-features = false }
 interest_management = { path = "lightyear/interest_management" }
+lightyear = { path = "../lightyear/lightyear" }
 bevy_mod_scripting_plugin = { path = "bevy_mod_scripting_plugin" }
 bevy_ecs_tilemap_plugin = { path = "bevy_ecs_tilemap_plugin" }

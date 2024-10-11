@@ -33,7 +33,7 @@ impl Plugin for ExampleServerPlugin {
                 // we are buffering replication messages
                 interest_management.in_set(ReplicationSet::SendMessages),
                 receive_message,
-                check_timers, // TODO TC - Test. Remove.
+                level_upload
             ),
         );
     }
@@ -41,8 +41,8 @@ impl Plugin for ExampleServerPlugin {
 
 #[derive(Resource, Default)]
 pub(crate) struct Global {
-    pub client_id_to_entity_id: HashMap<ClientId, Entity>,
-    pub client_id_to_room_id: HashMap<ClientId, RoomId>,
+    pub client_id_to_room_ids: HashMap<ClientId, Vec<RoomId>>,
+    pub room_id_to_client_ids: HashMap<RoomId, Vec<ClientId>>,
 }
 
 pub(crate) fn init(mut commands: Commands, mut room_manager: ResMut<RoomManager>) {
@@ -81,6 +81,7 @@ pub(crate) fn init(mut commands: Commands, mut room_manager: ResMut<RoomManager>
 /// Server connection system, create a player upon connection
 pub(crate) fn handle_connections(
     mut room_manager: ResMut<RoomManager>,
+    mut global: ResMut<Global>,
     mut connections: EventReader<ConnectEvent>,
     mut commands: Commands,
 ) {
@@ -98,29 +99,8 @@ pub(crate) fn handle_connections(
         // we can control the player visibility in a more static manner by using rooms
         // we add all clients to a room, as well as all player entities
         // this means that all clients will be able to see all player entities
-        room_manager.add_client(client_id, room_id);
+        add_client_to_room(&mut room_manager, &mut global, client_id, room_id);
         room_manager.add_entity(entity, room_id);
-
-        // TODO TC - Test. Remove.
-        commands.entity(animation_entity).insert(TimerComponent(Timer::from_seconds(5.0, TimerMode::Once)));
-    }
-}
-
-// TODO TC - Test. Remove.
-#[derive(Component)]
-pub struct TimerComponent(Timer);
-pub(crate) fn check_timers(mut commands: Commands,
-    mut cooldowns: Query<(Entity, &mut AnimationIndices, &mut TimerComponent)>,
-    time: Res<Time>
-) {
-    for (entity, mut animation_indices, mut timer) in &mut cooldowns {
-        timer.0.tick(time.delta());
-
-        if timer.0.finished() {
-            info!("Timer finished {}", animation_indices.last);
-            animation_indices.first = 3;
-            commands.entity(entity).remove::<TimerComponent>();
-        }
     }
 }
 
@@ -148,6 +128,40 @@ pub(crate) fn handle_disconnections(
                     commands.entity(entity).despawn();
                 }
             }
+        }
+    }
+}
+
+// Add the client to the room
+pub(crate) fn add_client_to_room(
+    room_manager: &mut RoomManager,
+    global: &mut Global,
+    client_id: ClientId,
+    room_id: RoomId,
+) {
+    room_manager.add_client(client_id, room_id);
+    global.client_id_to_room_ids.entry(client_id).or_insert_with(Vec::new).push(room_id);
+    global.room_id_to_client_ids.entry(room_id).or_insert_with(Vec::new).push(client_id);
+}
+
+// Remove the client from the room
+pub(crate) fn remove_client_from_room(
+    room_manager: &mut RoomManager,
+    global: &mut Global,
+    client_id: ClientId,
+    room_id: RoomId,
+) {
+    room_manager.remove_client(client_id, room_id);
+    if let Some(client_ids) = global.room_id_to_client_ids.get_mut(&room_id) {
+        client_ids.retain(|&id| id != client_id);
+        if client_ids.is_empty() {
+            global.room_id_to_client_ids.remove(&room_id);
+        }
+    }
+    if let Some(room_ids) = global.client_id_to_room_ids.get_mut(&client_id) {
+        room_ids.retain(|&id| id != room_id);
+        if room_ids.is_empty() {
+            global.client_id_to_room_ids.remove(&client_id);
         }
     }
 }
@@ -181,6 +195,7 @@ fn get_room_id_from_grid_position(grid_position: Vec2) -> RoomId {
 /// depending on the distance to the client's entity
 pub(crate) fn interest_management(
     mut room_manager: ResMut<RoomManager>,
+    mut global: ResMut<Global>,
     mut player_query: Query<(&PlayerId, Entity, Ref<Position>, &mut LastPosition)>
 ) {
     for (client_id, entity, position, last_position) in player_query.iter() {
@@ -188,12 +203,19 @@ pub(crate) fn interest_management(
             let grid_position = get_grid_position(position.0);
             match last_position.0 {
                 None => {
+                    // Remove the player from all rooms
+                    let client_id_to_room_ids = global.client_id_to_room_ids.clone();
+                    if let Some(room_ids) = client_id_to_room_ids.get(&client_id.0) {
+                        for room_id in room_ids {
+                            remove_client_from_room(&mut room_manager, &mut global, client_id.0, *room_id);
+                        }
+                    }
                     // Add the player to all rooms in the view distance
                     for dx in -VIEW_DISTANCE..=VIEW_DISTANCE {
                         for dy in -VIEW_DISTANCE..=VIEW_DISTANCE {
                             let view_grid_pos = grid_position + Vec2::new(dx as f32, dy as f32);
                             let room_id = get_room_id_from_grid_position(view_grid_pos);
-                            room_manager.add_client(client_id.0, room_id);
+                            add_client_to_room(&mut room_manager, &mut global, client_id.0, room_id);
                             if dx == 0 && dy == 0 { // Only add the entity to the room if it's in the center grid
                                 room_manager.add_entity(entity, room_id);
                                 info!("Player spawned, added to center grid_pos {:?} (id: {:?})", view_grid_pos, room_id);
@@ -232,12 +254,13 @@ pub(crate) fn interest_management(
                         for last_grid_pos in last_grid_positions.iter().filter(|&pos| !grid_positions.contains(pos)) {
                             let room_id = get_room_id_from_grid_position(*last_grid_pos);
                             room_manager.remove_client(client_id.0, room_id);
+                            remove_client_from_room(&mut room_manager, &mut global, client_id.0, room_id);
                             // info!("Client removed from grid_pos {:?} (id: {:?})", last_grid_pos, room_id);
                         }
                         // Add the client to rooms that are now in view
                         for grid_pos in grid_positions.iter().filter(|&pos| !last_grid_positions.contains(pos)) {
                             let room_id = get_room_id_from_grid_position(*grid_pos);
-                            room_manager.add_client(client_id.0, room_id);
+                            add_client_to_room(&mut room_manager, &mut global, client_id.0, room_id);
                             // info!("Client added to grid_pos {:?} (id: {:?})", grid_pos, room_id);
                         }
                     }
@@ -256,5 +279,37 @@ pub(crate) fn movement(
 ) {
     for (mut position, input) in position_query.iter_mut() {
         shared_movement_behaviour(&mut position, input);
+    }
+}
+
+// System to receive messages on the client
+pub(crate) fn level_upload(
+    mut reader: ResMut<Events<MessageEvent<LevelFile>>>,
+    mut connection: ResMut<ConnectionManager>,
+    mut global: ResMut<Global>,
+) {
+    for mut event in reader.drain() {
+        let client_id = *event.context();
+        // TODO - Check permissions
+        // Get rooms the uploader is in
+        let room_ids = global.client_id_to_room_ids.get(&client_id).unwrap();
+        // Get all clients in those rooms
+        let client_ids: Vec<_> = room_ids.iter()
+            .flat_map(|room_id| global.room_id_to_client_ids.get(room_id).unwrap())
+            .filter(|&&room_client_id| room_client_id != client_id)
+            .cloned()
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+        // Broadcast the message to all clients in the rooms
+        info!("Client {:?} uploaded level file {:?}, broadcasting to clients {:?}", client_id, event.message.0, client_ids);
+        if !client_ids.is_empty() {
+            connection
+                .send_message_to_target::<InputChannel, _>(
+                    &mut event.message,
+                    NetworkTarget::Only(client_ids),
+                )
+                .unwrap();
+        }
     }
 }
