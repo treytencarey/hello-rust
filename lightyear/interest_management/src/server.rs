@@ -12,7 +12,7 @@ use lightyear::connection::id::ClientId;
 
 const TILE_SIZE: i32 = 16; // 16 pixels x 16 pixels
 const LEVEL_SIZE: i32 = 64; // 64 tiles x 64 tiles
-const GRID_SIZE: i32 = TILE_SIZE * LEVEL_SIZE; // 1024 pixels x 1024 pixels
+pub const GRID_SIZE: i32 = TILE_SIZE * LEVEL_SIZE; // 1024 pixels x 1024 pixels
 const VIEW_DISTANCE: i32 = 1; // in grid units (1 = can see 1 grid unit away)
 
 // Plugin for server-specific logic
@@ -32,15 +32,14 @@ impl Plugin for ExampleServerPlugin {
                 // we don't have to run interest management every tick, only every time
                 // we are buffering replication messages
                 interest_management.in_set(ReplicationSet::SendMessages),
-                receive_message,
-                level_upload
+                receive_message
             ),
         );
     }
 }
 
 #[derive(Resource, Default)]
-pub(crate) struct Global {
+pub struct Global {
     pub client_id_to_room_ids: HashMap<ClientId, Vec<RoomId>>,
     pub room_id_to_client_ids: HashMap<RoomId, Vec<ClientId>>,
 }
@@ -61,21 +60,6 @@ pub(crate) fn init(mut commands: Commands, mut room_manager: ResMut<RoomManager>
             ..default()
         }),
     );
-
-    const NUM_LEVELS: i32 = 3;
-    for x in -NUM_LEVELS..=NUM_LEVELS {
-        for y in -NUM_LEVELS..=NUM_LEVELS {
-            let position = Vec2::new((x * GRID_SIZE) as f32, (y * GRID_SIZE) as f32);
-            let room_id = get_room_id_from_grid_position(get_grid_position(position));
-            
-            let level_entity = commands.spawn(
-                LevelBundle::new(position, "map_0.tmx".to_owned())
-            ).id();
-
-            info!("Level spawned, added to room: {:?} {:?}", room_id.0, position);
-            room_manager.add_entity(level_entity, room_id);
-        }
-    }
 }
 
 /// Server connection system, create a player upon connection
@@ -169,14 +153,14 @@ pub(crate) fn receive_message(mut messages: EventReader<MessageEvent<Message1>>)
     }
 }
 
-fn get_grid_position(position: Vec2) -> Vec2 {
+pub fn get_grid_position(position: Vec2) -> Vec2 {
     Vec2::new(
         (position.x / GRID_SIZE as f32).floor(),
         (position.y / GRID_SIZE as f32).floor(),
     )
 }
 
-fn get_room_id_from_grid_position(grid_position: Vec2) -> RoomId {
+pub fn get_room_id_from_grid_position(grid_position: Vec2) -> RoomId {
     fn cantor_pairing(a: i64, b: i64) -> i64 {
         (0.5 * (a + b) as f64 * (a + b + 1) as f64 + b as f64) as i64
     }
@@ -276,37 +260,5 @@ pub(crate) fn movement(
 ) {
     for (position, input) in position_query.iter_mut() {
         shared_movement_behaviour(position, input);
-    }
-}
-
-// System to receive messages on the client
-pub(crate) fn level_upload(
-    mut reader: ResMut<Events<MessageEvent<LevelFile>>>,
-    mut connection: ResMut<ConnectionManager>,
-    mut global: ResMut<Global>,
-) {
-    for mut event in reader.drain() {
-        let client_id = *event.context();
-        // TODO - Check permissions
-        // Get rooms the uploader is in
-        let room_ids = global.client_id_to_room_ids.get(&client_id).unwrap();
-        // Get all clients in those rooms
-        let client_ids: Vec<_> = room_ids.iter()
-            .flat_map(|room_id| global.room_id_to_client_ids.get(room_id).unwrap())
-            .filter(|&&room_client_id| room_client_id != client_id)
-            .cloned()
-            .collect::<std::collections::HashSet<_>>()
-            .into_iter()
-            .collect();
-        // Broadcast the message to all clients in the rooms
-        info!("Client {:?} uploaded level file {:?}, broadcasting to clients {:?}", client_id, event.message.0, client_ids);
-        if !client_ids.is_empty() {
-            connection
-                .send_message_to_target::<InputChannel, _>(
-                    &mut event.message,
-                    NetworkTarget::Only(client_ids),
-                )
-                .unwrap();
-        }
     }
 }

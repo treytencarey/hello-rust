@@ -85,15 +85,6 @@ pub(crate) struct AnimationBundle {
     replicate: Replicate,
 }
 
-// Level
-#[derive(Bundle)]
-pub(crate) struct LevelBundle {
-    position: Position,
-    last_position: LastPosition,
-    replicate: Replicate,
-    filename: LevelFileName,
-}
-
 impl PlayerBundle {
     pub(crate) fn new(id: ClientId, position: Vec2) -> Self {
         let color = color_from_id(id);
@@ -169,27 +160,6 @@ impl AnimationBundle {
     }
 }
 
-impl LevelBundle {
-    pub(crate) fn new(position: Vec2, filename: String) -> Self {
-        let sync_target = SyncTarget {
-            prediction: NetworkTarget::All,
-            ..default()
-        };
-        let replicate = Replicate {
-            sync: sync_target,
-            relevance_mode: NetworkRelevanceMode::InterestManagement,
-            group: REPLICATION_GROUP,
-            ..default()
-        };
-        Self {
-            replicate,
-            position: Position(position),
-            last_position: LastPosition(None),
-            filename: LevelFileName(filename)
-        }
-    }
-}
-
 // and deriving the `MapEntities` trait for the component.
 #[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq, Reflect)]
 pub struct PlayerParent(pub Entity);
@@ -206,10 +176,10 @@ impl MapEntities for PlayerParent {
 pub struct PlayerId(pub ClientId);
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut)]
-pub struct Position(pub(crate) Vec2);
+pub struct Position(pub Vec2);
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut)]
-pub struct LastPosition(pub(crate) Option<Vec2>);
+pub struct LastPosition(pub Option<Vec2>);
 
 impl Add for Position {
     type Output = Position;
@@ -253,12 +223,6 @@ pub struct Channel1;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Message1(pub usize);
-
-#[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
-pub struct LevelFileName(pub String);
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct LevelFile(pub Vec<u8>);
 
 // Inputs
 
@@ -310,13 +274,6 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<AnimationTimer>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Simple)
             .add_interpolation(ComponentSyncMode::Simple);
-
-        app.register_component::<LevelFileName>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
-
-        app.register_message::<LevelFile>(ChannelDirection::ClientToServer);
-        app.register_message::<LevelFile>(ChannelDirection::ServerToClient);
 
         app.register_component::<PlayerParent>(ChannelDirection::ServerToClient)
             .add_map_entities()
