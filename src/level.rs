@@ -36,11 +36,23 @@ impl LevelBundle {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct LevelFile(pub Vec<u8>);
-
-#[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
+#[derive(Default, Component, Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
 pub struct LevelFileName(pub String);
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct LevelFile {
+    data: Vec<u8>,
+    file_name: LevelFileName,
+}
+
+impl Default for LevelFile {
+    fn default() -> Self {
+        LevelFile {
+            data: Vec::new(),
+            file_name: LevelFileName::default(),
+        }
+    }
+}
 
 // ################################################################################################
 
@@ -66,7 +78,7 @@ impl Plugin for LevelServerPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-        (level_upload),
+        level_uploaded,
         );
         app.init_resource::<ConnectionManager>();
         app.add_systems(Startup, init);
@@ -90,7 +102,7 @@ pub(crate) fn init(mut commands: Commands, mut room_manager: ResMut<RoomManager>
     }
 }
 
-pub(crate) fn level_upload(
+pub(crate) fn level_uploaded(
     mut reader: EventReader<lightyear::server::events::MessageEvent<LevelFile>>,
     mut connection: ResMut<lightyear::server::connection::ConnectionManager>,
     mut global: ResMut<Global>,
@@ -109,10 +121,10 @@ pub(crate) fn level_upload(
             .into_iter()
             .collect();
         // Broadcast the message to all clients in the rooms
-        info!("Client {:?} uploaded level file {:?}, broadcasting to clients {:?}", client_id, event.message.0, client_ids);
+        info!("Client {:?} uploaded level file {:?}, broadcasting to clients {:?}", client_id, event.message.clone().file_name, client_ids);
         if !client_ids.is_empty() {
             match connection.send_message_to_target::<Channel1, _>(
-                &mut LevelFile("Test".into()),
+                &mut event.message.clone(),
                 NetworkTarget::Only(client_ids),
             ) {
                 Ok(_) => {
@@ -130,9 +142,17 @@ pub(crate) fn level_upload(
 
 pub struct LevelClientPlugin;
 
+// Used to prevent a level_download from calling level_modified
+#[derive(Resource, Default)]
+pub(crate) struct LevelDownloads {
+    pub file_names: Vec<LevelFileName>
+}
+
 impl Plugin for LevelClientPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
+        app
+        .insert_resource(LevelDownloads::default())
+        .add_systems(
             Update,
         (level_spawn, level_modified, level_download),
         );
@@ -170,19 +190,38 @@ fn level_modified(
     asset_server: Res<AssetServer>,
     mut level_query: Query<(&LevelFileName, &mut Handle<tiled::TiledMap>)>,
     players: Query<&PlayerId>,
+    mut level_downloads: ResMut<LevelDownloads>,
 ) {
     for event in events.read() {
+        // A level was modified
         if let AssetEvent::Modified { id } = event {
             for (level_file_name, mut map_handle) in &mut level_query {
+                // Find the level that was modified
                 if map_handle.id() == *id {
-                    info!("Level asset modified: {:?}", level_file_name.0);
-                    // TODO: Upload the new level to the server, if not modified by the server
-                    let mut message = LevelFile(level_file_name.0.as_bytes().to_vec());
-                    info!("Send message: {:?}", message);
-                    // the message will be re-broadcasted by the server to all clients
-                    client.send_message::<Channel1, LevelFile>(&mut message).unwrap_or_else(|e| {
-                        error!("Failed to send message: {:?}", e);
-                    });
+                    // 
+                    if let Some(pos) = level_downloads.file_names.iter().position(|name| name == level_file_name) {
+                        level_downloads.file_names.remove(pos);
+                        info!("Level asset modified, but not uploaded to the server: {:?}", level_file_name.0);
+                    }
+                    // File was changed, but not from the server. Try uploading to the server, who broadcasts it.
+                    else
+                    {
+                        info!("Level asset modified: {:?}", map_handle.path().unwrap().path());
+                        match std::fs::read(format!("assets/{}", map_handle.path().unwrap().path().display())) {
+                            Ok(file_data) => {
+                                let mut message = LevelFile {
+                                    data: file_data,
+                                    file_name: level_file_name.clone(),
+                                };
+                                client.send_message::<Channel1, LevelFile>(&mut message).unwrap_or_else(|e| {
+                                    error!("Failed to send message: {:?}", e);
+                                });
+                            }
+                            Err(e) => {
+                                error!("Failed to read file: {:?}", e);
+                            }
+                        }
+                    }
                     break;
                 }
             }
@@ -191,8 +230,20 @@ fn level_modified(
 }
 
 // System to receive messages on the client
-pub(crate) fn level_download(mut reader: ResMut<Events<lightyear::client::events::MessageEvent<LevelFile>>>) {
+pub(crate) fn level_download(
+    mut reader: ResMut<Events<lightyear::client::events::MessageEvent<LevelFile>>>,
+    mut level_downloads: ResMut<LevelDownloads>
+) {
     for event in reader.drain() {
-        info!("Received message: {:?}", event.message());
+        level_downloads.file_names.push(event.message.file_name.clone());
+        // Save the level file to the disk
+        match std::fs::write(format!("assets/{}", event.message.file_name.0), event.message.data) {
+            Ok(_) => {
+                info!("Level downloaded: {:?}", event.message.file_name.0);
+            }
+            Err(e) => {
+                error!("Failed to download level: {:?}", e);
+            }
+        }
     }
 }
