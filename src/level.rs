@@ -1,10 +1,9 @@
-use bevy::{prelude::*};
+use bevy::prelude::*;
 use bevy_ecs_tilemap_plugin::helpers::tiled;
-use interest_management::{client::{ClientConnection, ComponentSyncMode, ConnectionManager, Interpolated, Predicted}, protocol::{Channel1, LastPosition, PlayerId, Position, REPLICATION_GROUP}, server::{get_grid_position, get_room_id_from_grid_position, Global, GRID_SIZE}};
-use lightyear::{prelude::{server::{Replicate, RoomManager, SyncTarget}, AppComponentExt, AppMessageExt, ChannelDirection, InputChannel, NetworkRelevanceMode}, shared::replication::network_target::NetworkTarget};
+use interest_management::{client::{ComponentSyncMode, ConnectionManager, Interpolated, Predicted}, protocol::{Channel1, LastPosition, Position, REPLICATION_GROUP}, server::{get_grid_position, get_room_id_from_grid_position, Global, GRID_SIZE}};
+use lightyear::{prelude::{server::{Replicate, RoomManager, SyncTarget}, AppComponentExt, AppMessageExt, ChannelDirection, NetworkRelevanceMode}, shared::replication::network_target::NetworkTarget};
 use serde::{Deserialize, Serialize};
 use lightyear::connection::id::ClientId;
-use lightyear::prelude::server::*;
 
 // Level
 #[derive(Bundle)]
@@ -105,9 +104,9 @@ pub(crate) fn init(mut commands: Commands, mut room_manager: ResMut<RoomManager>
 pub(crate) fn level_uploaded(
     mut reader: EventReader<lightyear::server::events::MessageEvent<LevelFile>>,
     mut connection: ResMut<lightyear::server::connection::ConnectionManager>,
-    mut global: ResMut<Global>,
+    global: ResMut<Global>,
 ) {
-    for mut event in reader.read() {
+    for event in reader.read() {
         let client_id: ClientId = *event.context();
         // TODO - Check permissions
         // Get rooms the uploader is in
@@ -160,11 +159,10 @@ impl Plugin for LevelClientPlugin {
 }
 
 fn level_spawn(
-    connection: Res<ClientConnection>,
     mut commands: Commands,
     mut level_query: Query<
         (Entity, &LevelFileName, &Position),
-        (Or<(Added<Interpolated>, Added<Predicted>)>),
+        Or<(Added<Interpolated>, Added<Predicted>)>,
     >,
     asset_server: Res<AssetServer>,
 ) {
@@ -187,15 +185,13 @@ fn level_spawn(
 fn level_modified(
     mut events: EventReader<AssetEvent<tiled::TiledMap>>,
     mut client: ResMut<ConnectionManager>,
-    asset_server: Res<AssetServer>,
     mut level_query: Query<(&LevelFileName, &mut Handle<tiled::TiledMap>)>,
-    players: Query<&PlayerId>,
     mut level_downloads: ResMut<LevelDownloads>,
 ) {
     for event in events.read() {
         // A level was modified
         if let AssetEvent::Modified { id } = event {
-            for (level_file_name, mut map_handle) in &mut level_query {
+            for (level_file_name, map_handle) in &mut level_query {
                 // Find the level that was modified
                 if map_handle.id() == *id {
                     // 

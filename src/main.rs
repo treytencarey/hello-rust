@@ -1,7 +1,6 @@
-use interest_management::{client::{ExampleClientPlugin, Predicted}, main as networking, protocol::Position, shared::SharedPlugin};
+use interest_management::main as networking;
 use bevy_mod_scripting_plugin::console_integration::ScriptPlugin;
 use bevy_ecs_tilemap_plugin::tiled::TilesPlugin;
-use bevy::prelude::*;
 use level::{LevelClientPlugin, LevelServerPlugin, LevelSharedPlugin};
 
 pub mod level;

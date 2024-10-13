@@ -1,13 +1,11 @@
 use bevy::prelude::*;
-use bevy::utils::Duration;
 use bevy::utils::HashMap;
 use leafwing_input_manager::prelude::{ActionState, InputMap};
 
 use lightyear::prelude::server::*;
-use lightyear::prelude::*;
 
 use crate::protocol::*;
-use crate::shared::{color_from_id, shared_movement_behaviour};
+use crate::shared::shared_movement_behaviour;
 use lightyear::connection::id::ClientId;
 
 const TILE_SIZE: i32 = 16; // 16 pixels x 16 pixels
