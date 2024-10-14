@@ -272,7 +272,7 @@ impl Apps {
     }
 
     /// TC - Used for e.g. tiled, only the client needs it
-    /// Add the client, server, and shared user-provided plugins to the app
+    /// Add the client user-provided plugins to the app
     pub fn add_user_client_plugins(
         &mut self,
         client_plugin: impl Plugin,
@@ -280,6 +280,38 @@ impl Apps {
         match self {
             Apps::Client { app, .. } => {
                 app.add_plugins(client_plugin);
+            }
+            Apps::ClientAndServer {
+                client_app,
+                server_app,
+                ..
+            } => {
+                client_app.add_plugins(client_plugin);
+            }
+            _ => {}
+        }
+        self
+    }
+
+    /// TC - Used for e.g. levels that need server processing
+    /// Add the server user-provided plugins to the app
+    pub fn add_user_server_plugins(
+        &mut self,
+        server_plugin: impl Plugin,
+    ) -> &mut Self {
+        match self {
+            Apps::Server { app, .. } => {
+                app.add_plugins(server_plugin);
+            }
+            Apps::ClientAndServer {
+                client_app,
+                server_app,
+                ..
+            } => {
+                server_app.add_plugins(server_plugin);
+            }
+            Apps::HostServer { app, .. } => {
+                app.add_plugins(server_plugin);
             }
             _ => {}
         }

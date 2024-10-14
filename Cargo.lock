@@ -3259,6 +3259,8 @@ dependencies = [
  "bevy_mod_scripting_plugin",
  "interest_management",
  "lightyear",
+ "serde",
+ "sha2",
 ]
 
 [[package]]

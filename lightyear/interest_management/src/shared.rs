@@ -1,9 +1,6 @@
-use bevy::color::palettes::css::GREEN;
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
-use bevy::utils::Duration;
 use leafwing_input_manager::action_state::ActionState;
-use std::ops::Deref;
 
 use lightyear::client::components::Confirmed;
 use lightyear::prelude::*;
