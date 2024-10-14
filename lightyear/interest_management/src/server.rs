@@ -96,6 +96,8 @@ pub(crate) fn handle_connections(
 pub(crate) fn handle_disconnections(
     mut commands: Commands,
     mut disconnections: EventReader<DisconnectEvent>,
+    mut global: ResMut<Global>,
+    mut room_manager: ResMut<RoomManager>,
     manager: Res<ConnectionManager>,
     client_query: Query<&ControlledEntities>,
 ) {
@@ -106,6 +108,13 @@ pub(crate) fn handle_disconnections(
                 for entity in controlled_entities.entities() {
                     commands.entity(entity).despawn();
                 }
+            }
+        }
+        // Remove the client from all rooms
+        if let Some(client_rooms) = global.client_id_to_room_ids.get(&disconnection.client_id) {
+            let rooms_to_remove: Vec<RoomId> = client_rooms.clone();
+            for room_id in rooms_to_remove.iter() {
+                remove_client_from_room(&mut room_manager, &mut global, disconnection.client_id, *room_id);
             }
         }
     }

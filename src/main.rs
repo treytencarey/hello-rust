@@ -6,6 +6,8 @@ use level::{LevelClientPlugin, LevelServerPlugin, LevelSharedPlugin};
 pub mod level;
 
 fn main() {
+    println!("Running in directory: {}", std::env::current_dir().unwrap().display());
+
     let mut apps = networking::plugin_main();
     apps
         .add_user_client_plugins(ScriptPlugin)

@@ -3260,6 +3260,7 @@ dependencies = [
  "interest_management",
  "lightyear",
  "serde",
+ "sha2",
 ]
 
 [[package]]
