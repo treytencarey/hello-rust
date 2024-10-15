@@ -1,7 +1,7 @@
 use interest_management::main as networking;
 use bevy_mod_scripting_plugin::console_integration::ScriptPlugin;
 use bevy_ecs_tilemap_plugin::tiled::TilesPlugin;
-use player::PlayerPlugin;
+use player::{PlayerClientPlugin, PlayerServerPlugin, PlayerSharedPlugin};
 use level::{LevelClientPlugin, LevelServerPlugin, LevelSharedPlugin};
 
 pub mod player;
@@ -14,7 +14,7 @@ fn main() {
     apps
         .add_user_client_plugins(ScriptPlugin)
         .add_user_client_plugins(TilesPlugin)
-        .add_user_client_plugins(PlayerPlugin)
+        .add_user_plugins(PlayerClientPlugin, PlayerServerPlugin, PlayerSharedPlugin)
         .add_user_plugins(LevelClientPlugin, LevelServerPlugin, LevelSharedPlugin);
     apps.run();
 }

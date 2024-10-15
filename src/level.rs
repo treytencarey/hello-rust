@@ -1,10 +1,12 @@
 use bevy::prelude::*;
 use bevy_ecs_tilemap_plugin::helpers::tiled;
-use interest_management::{client::{ComponentSyncMode, ConnectionManager, Interpolated, Predicted}, protocol::{Channel1, LastPosition, Position, REPLICATION_GROUP}, server::{get_grid_position, get_room_id_from_grid_position, Global, GRID_SIZE}};
+use interest_management::{client::{ComponentSyncMode, ConnectionManager, Interpolated, Predicted}, server::{get_grid_position, get_room_id_from_grid_position, Global, GRID_SIZE}, shared::{LastPosition, Position}};
 use lightyear::{prelude::{server::{Replicate, RoomManager, SyncTarget}, AppComponentExt, AppMessageExt, ChannelDirection, NetworkRelevanceMode}, shared::replication::network_target::NetworkTarget};
 use serde::{Deserialize, Serialize};
 use lightyear::connection::id::ClientId;
 use sha2::{Digest, Sha256};
+
+use crate::player::{Channel1, REPLICATION_GROUP};
 
 // Level
 #[derive(Bundle)]

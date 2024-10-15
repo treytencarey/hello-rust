@@ -4,14 +4,13 @@ use leafwing_input_manager::prelude::{ActionState, InputMap};
 
 use lightyear::prelude::server::*;
 
-use crate::protocol::*;
-use crate::shared::shared_movement_behaviour;
+use crate::shared::{shared_movement_behaviour, Inputs, LastPosition, PlayerId, Position};
 use lightyear::connection::id::ClientId;
 
-const TILE_SIZE: i32 = 16; // 16 pixels x 16 pixels
+const TILE_SIZE: i32 = 32; // 32 pixels x 32 pixels
 const LEVEL_SIZE: i32 = 64; // 64 tiles x 64 tiles
-pub const GRID_SIZE: i32 = TILE_SIZE * LEVEL_SIZE; // 1024 pixels x 1024 pixels
-const VIEW_DISTANCE: i32 = 1; // in grid units (1 = can see 1 grid unit away)
+pub const GRID_SIZE: i32 = TILE_SIZE * LEVEL_SIZE; // 2048 pixels x 2048 pixels
+const VIEW_DISTANCE: i32 = 0; // in grid units (1 = can see 1 grid unit away)
 
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin;
@@ -30,7 +29,6 @@ impl Plugin for ExampleServerPlugin {
                 // we don't have to run interest management every tick, only every time
                 // we are buffering replication messages
                 interest_management.in_set(ReplicationSet::SendMessages),
-                receive_message
             ),
         );
     }
@@ -60,7 +58,7 @@ pub(crate) fn init(mut commands: Commands, mut room_manager: ResMut<RoomManager>
     );
 }
 
-/// Server connection system, create a player upon connection
+/// Server connection system, add the client to the rooms they can see
 pub(crate) fn handle_connections(
     mut room_manager: ResMut<RoomManager>,
     mut global: ResMut<Global>,
@@ -71,18 +69,11 @@ pub(crate) fn handle_connections(
         let position = Vec2::ZERO + Vec2::new(100.0, 100.0);
         let room_id = get_room_id_from_grid_position(position);
         let client_id = connection.client_id;
-        let entity = commands.spawn(
-            PlayerBundle::new(client_id, position)
-        ).id();
-        let animation_entity = commands.spawn(
-            AnimationBundle::new(client_id, entity)
-        ).id();
         
         // we can control the player visibility in a more static manner by using rooms
         // we add all clients to a room, as well as all player entities
         // this means that all clients will be able to see all player entities
         add_client_to_room(&mut room_manager, &mut global, client_id, room_id);
-        room_manager.add_entity(entity, room_id);
     }
 }
 
@@ -154,12 +145,6 @@ pub(crate) fn remove_client_from_room(
         if room_ids.is_empty() {
             global.client_id_to_room_ids.remove(&client_id);
         }
-    }
-}
-
-pub(crate) fn receive_message(mut messages: EventReader<MessageEvent<Message1>>) {
-    for message in messages.read() {
-        info!("recv message");
     }
 }
 

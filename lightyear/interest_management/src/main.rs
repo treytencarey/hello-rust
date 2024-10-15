@@ -2,7 +2,6 @@
 #![allow(unused_variables)]
 #![allow(dead_code)]
 use crate::client::ExampleClientPlugin;
-use crate::protocol::PlayerPlugin;
 use crate::server::ExampleServerPlugin;
 use crate::shared::SharedPlugin;
 use bevy::prelude::*;
@@ -18,7 +17,6 @@ pub fn plugin_main() -> Apps {
     // add `ClientPlugins` and `ServerPlugins` plugin groups
     apps.add_lightyear_plugins()
         // add our plugins
-        .add_user_plugins(ExampleClientPlugin, ExampleServerPlugin, SharedPlugin)
-        .add_user_client_plugins(PlayerPlugin);
+        .add_user_plugins(ExampleClientPlugin, ExampleServerPlugin, SharedPlugin);
     apps
 }
