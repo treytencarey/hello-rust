@@ -40,7 +40,7 @@ pub struct Global {
     pub room_id_to_client_ids: HashMap<RoomId, Vec<ClientId>>,
 }
 
-pub(crate) fn init(mut commands: Commands, mut room_manager: ResMut<RoomManager>) {
+pub(crate) fn init(mut commands: Commands) {
     commands.start_server();
     commands.spawn(
         TextBundle::from_section(
@@ -62,8 +62,7 @@ pub(crate) fn init(mut commands: Commands, mut room_manager: ResMut<RoomManager>
 pub(crate) fn handle_connections(
     mut room_manager: ResMut<RoomManager>,
     mut global: ResMut<Global>,
-    mut connections: EventReader<ConnectEvent>,
-    mut commands: Commands,
+    mut connections: EventReader<ConnectEvent>
 ) {
     for connection in connections.read() {
         let position = Vec2::ZERO + Vec2::new(100.0, 100.0);

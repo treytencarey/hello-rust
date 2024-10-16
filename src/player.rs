@@ -337,13 +337,13 @@ fn player_spawn(
     mut parent_query: Query<Entity>,
     mut character_query: Query<
         (&PlayerParent, &AnimationTimer, &AnimationIndices, &AnimationSpriteBundle, &PlayerTextureAtlasLayout),
-        (Or<(Added<Predicted>, Added<Interpolated>)>),
+        Or<(Added<Predicted>, Added<Interpolated>)>,
     >,
     asset_server: Res<AssetServer>,
     mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
 ) {
     for (parent, animation_timer, animation_indices, animation_sprite_bundle, atlas_layout) in &mut character_query {
-        let (parent_entity) = parent_query
+        let parent_entity = parent_query
             .get_mut(parent.0)
             .expect("Tail entity has no parent entity!");
         // spawn extra sprites, etc.
