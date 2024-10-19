@@ -248,9 +248,9 @@ fn level_spawn(
 ) {
     for (entity, level_file_name, position) in &mut level_query {
         info!("Spawning level: {:?}, position: {:?}", level_file_name.0, position);
-
+        
         // Load the Tiled map using the level file name
-        let map_handle: Handle<tiled::TiledMap> = asset_server.load(level_file_name.0.clone());
+        let map_handle: Handle<tiled::TiledMap> = asset_server.load(&level_file_name.0);
 
         // Send a hash of the level file to the server, so it can check if it's the latest version
         client.send_message::<Channel1, LevelFileHash>(&mut level_get_hash(level_file_name.clone())).unwrap_or_else(|e| {
