@@ -4,7 +4,7 @@ use interest_management::{client::{ComponentSyncMode, ConnectionManager, Interpo
 use lightyear::{prelude::{server::{Replicate, RoomManager, SyncTarget}, AppComponentExt, ChannelDirection, NetworkRelevanceMode, ReplicationGroup}, shared::replication::network_target::NetworkTarget};
 use serde::{Deserialize, Serialize};
 
-use crate::remote_file::{remotefile_modified, RemoteFileBundle, RemoteFileParent};
+use crate::{remote_file::{remotefile_modified, RemoteFileBundle}, script::ScriptBundle};
 
 // Level
 #[derive(Bundle)]
@@ -71,11 +71,6 @@ impl Plugin for LevelSharedPlugin {
         app.register_component::<LevelFileName>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once)
             .add_interpolation(ComponentSyncMode::Once);
-
-        app.register_component::<RemoteFileParent>(ChannelDirection::ServerToClient)
-            .add_map_entities()
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
     }
 }
 
@@ -96,18 +91,28 @@ pub(crate) fn init(mut commands: Commands, mut room_manager: ResMut<RoomManager>
         for y in -NUM_LEVELS..=NUM_LEVELS {
             let position = Vec2::new((x * GRID_SIZE) as f32, (y * GRID_SIZE) as f32);
             let room_id = get_room_id_from_grid_position(get_grid_position(position));
-            let filename = format!("map_{}.tmx", room_id.0);
-
+            
+            let level_filename = format!("map_{}.tmx", room_id.0);
             let level_entity = commands.spawn(
-                LevelBundle::new(position, filename.clone())
+                LevelBundle::new(position, level_filename.clone())
             ).id();
-            let remote_file_entity = commands.spawn(
-                RemoteFileBundle::new(filename.clone(), level_entity)
+            let level_file_entity = commands.spawn(
+                RemoteFileBundle::new(level_filename.clone(), level_entity)
+            ).id();
+
+            let script_filename = format!("scripts/map_{}.lua", room_id.0);
+            let script_entity = commands.spawn(
+                ScriptBundle::new(script_filename.clone(), level_entity)
+            ).id();
+            let script_file_entity = commands.spawn(
+                RemoteFileBundle::new(script_filename.clone(), script_entity)
             ).id();
 
             info!("Level spawned, added to room: {:?} {:?}", room_id.0, position);
             room_manager.add_entity(level_entity, room_id);
-            room_manager.add_entity(remote_file_entity, room_id);
+            room_manager.add_entity(level_file_entity, room_id);
+            room_manager.add_entity(script_entity, room_id);
+            room_manager.add_entity(script_file_entity, room_id);
         }
     }
 }

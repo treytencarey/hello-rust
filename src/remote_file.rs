@@ -84,6 +84,11 @@ impl Plugin for RemoteFileSharedPlugin {
         app.register_message::<RemoteFile>(ChannelDirection::Bidirectional);
 
         app.register_message::<RemoteFileHash>(ChannelDirection::ClientToServer);
+
+        app.register_component::<RemoteFileParent>(ChannelDirection::ServerToClient)
+            .add_map_entities()
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
     }
 }
 
@@ -248,42 +253,38 @@ fn remotefile_spawn(
 pub fn remotefile_modified<T: Asset>(
     mut events: EventReader<AssetEvent<T>>,
     mut client: ResMut<ConnectionManager>,
-    mut remotefile_query: Query<&mut Handle<T>>,
     mut remotefile_downloads: ResMut<RemoteFileDownloads>,
+    asset_server: Res<AssetServer>,
 ) {
     for event in events.read() {
         info!("RemoteFile asset event: {:?}", event);
         // A remotefile was modified
         if let AssetEvent::Modified { id } = event {
-            for map_handle in &mut remotefile_query {
-                // Find the remotefile that was modified
-                if map_handle.id() == *id {
-                    let remote_file_name = RemoteFileName(map_handle.path().unwrap().path().display().to_string());
-                    // 
-                    if let Some(pos) = remotefile_downloads.file_names.iter().position(|name| *name == remote_file_name) {
-                        remotefile_downloads.file_names.remove(pos);
-                        info!("RemoteFile asset modified, but not uploaded to the server: {:?}", remote_file_name);
-                    }
-                    // File was changed, but not from the server. Try uploading to the server, who broadcasts it.
-                    else
-                    {
-                        info!("RemoteFile asset modified: {:?}", map_handle.path().unwrap().path());
-                        match std::fs::read(format!("assets/{}", remote_file_name.0)) {
-                            Ok(file_data) => {
-                                let mut message = RemoteFile {
-                                    data: file_data,
-                                    file_name: remote_file_name,
-                                };
-                                client.send_message::<Channel1, RemoteFile>(&mut message).unwrap_or_else(|e| {
-                                    error!("Failed to send message: {:?}", e);
-                                });
-                            }
-                            Err(e) => {
-                                error!("Failed to read file: {:?}", e);
-                            }
+            if let Some(asset) = asset_server.get_id_handle(*id) {
+                let remote_file_name = RemoteFileName(asset.path().unwrap().path().display().to_string());
+                // 
+                if let Some(pos) = remotefile_downloads.file_names.iter().position(|name| *name == remote_file_name) {
+                    remotefile_downloads.file_names.remove(pos);
+                    info!("RemoteFile asset modified, but not uploaded to the server: {:?}", remote_file_name);
+                }
+                // File was changed, but not from the server. Try uploading to the server, who broadcasts it.
+                else
+                {
+                    info!("RemoteFile asset modified: {:?}", remote_file_name.0);
+                    match std::fs::read(format!("assets/{}", remote_file_name.0)) {
+                        Ok(file_data) => {
+                            let mut message = RemoteFile {
+                                data: file_data,
+                                file_name: remote_file_name,
+                            };
+                            client.send_message::<Channel1, RemoteFile>(&mut message).unwrap_or_else(|e| {
+                                error!("Failed to send message: {:?}", e);
+                            });
+                        }
+                        Err(e) => {
+                            error!("Failed to read file: {:?}", e);
                         }
                     }
-                    break;
                 }
             }
         }
