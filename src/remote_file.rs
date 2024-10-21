@@ -1,5 +1,4 @@
 use bevy::{ecs::entity::MapEntities, prelude::*};
-use bevy_ecs_tilemap_plugin::helpers::tiled;
 use interest_management::{client::{ComponentSyncMode, ConnectionManager, Interpolated, Predicted}, server::Global};
 use lightyear::{prelude::{server::{Replicate, SyncTarget}, AppComponentExt, AppMessageExt, ChannelDirection, NetworkRelevanceMode, ReplicationGroup}, shared::replication::network_target::NetworkTarget};
 use serde::{Deserialize, Serialize};
