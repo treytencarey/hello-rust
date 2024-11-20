@@ -1,1 +1,1 @@
-print("MAP TEST")
+print("Map load script")

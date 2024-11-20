@@ -2,6 +2,7 @@ use bevy::{ecs::event::Events, log::LogPlugin, prelude::*};
 use bevy_console::{AddConsoleCommand, ConsoleCommand, ConsolePlugin, PrintConsoleLine};
 use bevy_mod_scripting::prelude::*;
 use clap::Parser;
+use interest_management::{client::Predicted, shared::PlayerId};
 
 use std::sync::Mutex;
 
@@ -95,6 +96,7 @@ pub fn run_script_cmd(
     server: Res<AssetServer>,
     mut commands: Commands,
     mut existing_scripts: Query<&mut ScriptCollection<LuaFile>>,
+    player_query: Query<Entity, (With<PlayerId>, With<Predicted>)>,
 ) {
     if let Some(Ok(RunScriptCmd { path, entity })) = log.take() {
         let handle = server.load::<LuaFile>(&format!("scripts/{}", &path));
@@ -111,9 +113,13 @@ pub fn run_script_cmd(
             None => {
                 info!("Creating script: scripts/{}", &path);
 
-                commands.spawn(()).insert(ScriptCollection::<LuaFile> {
-                    scripts: vec![Script::<LuaFile>::new(path, handle)],
-                });
+                if let Ok(entity) = player_query.get_single() {
+                    commands.entity(entity).insert(ScriptCollection::<LuaFile> {
+                        scripts: vec![Script::<LuaFile>::new(path, handle)],
+                    });
+                } else {
+                    log.reply_failed("No player entity found".to_string());
+                }
             }
         };
     }
