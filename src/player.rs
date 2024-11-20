@@ -1,27 +1,69 @@
+#![allow(deprecated)]
+use std::sync::Mutex;
+
+use avian2d::prelude::{AngularVelocity, LinearVelocity, Position};
 use bevy::{ecs::entity::MapEntities, prelude::*, render::RenderPlugin};
-use client::{ComponentSyncMode, Confirmed};
-use leafwing_input_manager::action_state::ActionState;
+use bevy_mod_scripting::prelude::*;
+use client::{ComponentSyncMode, Confirmed, PredictionSet};
+use leafwing_input_manager::{action_state::ActionState, InputManagerBundle};
 use leafwing_input_manager::input_map::InputMap;
-use interest_management::{client::{ClientConnection, Interpolated, NetClient, Predicted}, server::get_room_id_from_grid_position, shared::{Inputs, LastPosition, PlayerId, Position}};
+use interest_management::{client::{ClientConnection, NetClient, Predicted}, server::{get_room_id_from_grid_position, Global}, shared::{Inputs, LastPosition, PlayerId, PlayerRoom, PhysicsBundle}};
 use lightyear::prelude::ReplicationGroup;
 use lightyear::prelude::server::{ControlledBy, Replicate, SyncTarget};
 use lightyear::prelude::*;
-use server::RoomManager;
+use lightyear::shared::replication::components::Controlled;
+use lightyear::utils::avian2d::*;
+use server::{RoomManager, ServerReplicationSet};
 
 // For prediction, we want everything entity that is predicted to be part of the same replication group
 // This will make sure that they will be replicated in the same message and that all the entities in the group
 // will always be consistent (= on the same tick)
 pub const REPLICATION_GROUP: ReplicationGroup = ReplicationGroup::new_id(1);
 
+#[derive(Debug, Default, Clone, Reflect, Component, LuaProxy, Serialize, Deserialize, PartialEq)]
+#[reflect(Component, LuaProxyable)]
+pub struct PlayerState {
+    pub room: u64,
+}
+
+#[derive(Default)]
+pub struct PlayerAPI;
+
+impl APIProvider for PlayerAPI {
+    type APITarget = Mutex<Lua>;
+    type ScriptContext = Mutex<Lua>;
+    type DocTarget = LuaDocFragment;
+
+    fn attach_api(&mut self, _: &mut Self::APITarget) -> Result<(), ScriptError> {
+        // we don't actually provide anything global
+        Ok(())
+    }
+
+    fn register_with_app(&self, app: &mut App) {
+        // this will register the `LuaProxyable` typedata since we derived it
+        // this will resolve retrievals of this component to our custom lua object
+        app.register_type::<PlayerState>();
+    }
+}
+
+// ################################################################################################
+
 // Player
 #[derive(Bundle)]
 pub(crate) struct PlayerBundle {
     id: PlayerId,
+    room_id: PlayerRoom,
     position: Position,
     last_position: LastPosition, // used for checking if the position has crossed a grid boundary
     color: PlayerColor,
     replicate: Replicate,
-    action_state: ActionState<Inputs>,
+    player_state: PlayerState,
+    physics: PhysicsBundle,
+    inputs: InputManagerBundle<Inputs>,
+    // IMPORTANT: this lets the server know that the entity is pre-predicted
+    // when the server replicates this entity; we will get a Confirmed entity which will use this entity
+    // as the Predicted version
+    pre_predicted: PrePredicted,
 }
 
 // Animation
@@ -49,18 +91,29 @@ impl PlayerBundle {
             },
             // use network relevance for replication
             relevance_mode: NetworkRelevanceMode::InterestManagement,
-            group: ReplicationGroup::default(),
+            // NOTE (important): all entities that are being predicted need to be part of the same replication-group
+            //  so that all their updates are sent as a single message and are consistent (on the same tick)
+            group: REPLICATION_GROUP,
             ..default()
         };
 
         // Use only the subset of sprites in the sheet that make up the run animation
         Self {
             id: PlayerId(id),
+            room_id: PlayerRoom(0),
             position: Position(position),
             last_position: LastPosition(None),
             color: PlayerColor(color),
             replicate,
-            action_state: ActionState::default(),
+            player_state: PlayerState {
+                room: 0,
+            },
+            physics: PhysicsBundle::player(),
+            inputs: InputManagerBundle::<Inputs> {
+                action_state: ActionState::default(),
+                input_map: Self::get_input_map(),
+            },
+            pre_predicted: PrePredicted::default(),
         }
     }
     pub(crate) fn get_input_map() -> InputMap<Inputs> {
@@ -186,7 +239,8 @@ impl Plugin for PlayerSharedPlugin {
         app.register_component::<Position>(ChannelDirection::Bidirectional)
             .add_prediction(ComponentSyncMode::Full)
             .add_interpolation(ComponentSyncMode::Full)
-            .add_linear_interpolation_fn();
+            .add_interpolation_fn(position::lerp)
+            .add_correction_fn(position::lerp);
 
         app.register_component::<PlayerColor>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once)
@@ -208,12 +262,25 @@ impl Plugin for PlayerSharedPlugin {
             .add_prediction(ComponentSyncMode::Simple)
             .add_interpolation(ComponentSyncMode::Simple);
 
+        app.register_component::<PlayerState>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Simple)
+            .add_interpolation(ComponentSyncMode::Simple);
+
         app.register_component::<PlayerParent>(ChannelDirection::ServerToClient)
             .add_map_entities()
             .add_prediction(ComponentSyncMode::Once)
             .add_interpolation(ComponentSyncMode::Once);
+
+        // NOTE: interpolation/correction is only needed for components that are visually displayed!
+        // we still need prediction to be able to correctly predict the physics on the client
+        app.register_component::<LinearVelocity>(ChannelDirection::Bidirectional)
+            .add_prediction(ComponentSyncMode::Full);
+
+        app.register_component::<AngularVelocity>(ChannelDirection::Bidirectional)
+            .add_prediction(ComponentSyncMode::Full);
+
         // channels
-        app.add_channel::<Channel1>(ChannelSettings {
+        app.add_channel::<Channel1>(ChannelSettings { 
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
             ..default()
         });
@@ -253,7 +320,26 @@ pub struct PlayerServerPlugin;
 
 impl Plugin for PlayerServerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, handle_connections);
+        app.add_systems(Update, update_player_state);
+        app.add_systems(
+            PreUpdate,
+            handle_connections
+                .after(MainSet::Receive)
+                .before(PredictionSet::SpawnPrediction),
+        );
+        // Re-adding Replicate components to client-replicated entities must be done in this set for proper handling.
+        app.add_systems(
+            PreUpdate,
+            replicate_players.in_set(ServerReplicationSet::ClientReplication),
+        );
+    }
+}
+
+pub(crate) fn update_player_state(
+    mut player_query: Query<(&mut PlayerState, &PlayerRoom), Changed<PlayerRoom>>,
+) {
+    for (mut player_state, player_room) in player_query.iter_mut() {
+        player_state.room = player_room.0;
     }
 }
 
@@ -278,6 +364,50 @@ pub(crate) fn handle_connections(
     }
 }
 
+// Replicate the pre-predicted entities back to the client
+pub(crate) fn replicate_players(
+    global: Res<Global>,
+    mut commands: Commands,
+    query: Query<(Entity, &Replicated), (Added<Replicated>, With<PlayerId>)>,
+) {
+    for (entity, replicated) in query.iter() {
+        let client_id = replicated.client_id();
+        info!("received player spawn event from client {client_id:?}");
+
+        // for all player entities we have received, add a Replicate component so that we can start replicating it
+        // to other clients
+        if let Some(mut e) = commands.get_entity(entity) {
+            // we want to replicate back to the original client, since they are using a pre-predicted entity
+            let mut sync_target = SyncTarget::default();
+
+            // if global.predict_all {
+                sync_target.prediction = NetworkTarget::All;
+            // } else {
+            //     // we want the other clients to apply interpolation for the player
+            //     sync_target.interpolation = NetworkTarget::AllExceptSingle(client_id);
+            // }
+            let replicate = Replicate {
+                sync: sync_target,
+                controlled_by: ControlledBy {
+                    target: NetworkTarget::Single(client_id),
+                    ..default()
+                },
+                // make sure that all entities that are predicted are part of the same replication group
+                group: REPLICATION_GROUP,
+                ..default()
+            };
+            e.insert((
+                replicate,
+                // if we receive a pre-predicted entity, only send the prepredicted component back
+                // to the original client
+                OverrideTargetComponent::<PrePredicted>::new(NetworkTarget::Single(client_id)),
+                // not all physics components are replicated over the network, so add them on the server as well
+                PhysicsBundle::player(),
+            ));
+        }
+    }
+}
+
 // ################################################################################################
 
 pub struct PlayerClientPlugin;
@@ -287,13 +417,23 @@ impl Plugin for PlayerClientPlugin {
         app.add_systems(
             Update,
             (
+                player_state_updated,
                 add_input_map,
-                player_spawn,
+                handle_new_player,
                 camera_movement,
                 animate_sprite,
             ),
         );
         app.add_systems(PreUpdate, handle_connection.after(MainSet::Receive));
+        app.add_api_provider::<LuaScriptHost<()>>(Box::new(PlayerAPI));
+    }
+}
+
+pub(crate) fn player_state_updated(
+    player_query: Query<&PlayerState, (With<Predicted>, Changed<PlayerState>)>,
+) {
+    for player_state in player_query.iter() {
+        info!(?player_state, "Player state updated");
     }
 }
 
@@ -331,18 +471,21 @@ pub(crate) fn handle_connection(
     }
 }
 
-fn player_spawn(
+/// Decorate newly connecting players with physics components
+/// ..and if it's our own player, set up input stuff
+#[allow(clippy::type_complexity)]
+fn handle_new_player(
     connection: Res<ClientConnection>,
     mut commands: Commands,
     mut parent_query: Query<Entity>,
     mut character_query: Query<
-        (&PlayerParent, &AnimationTimer, &AnimationIndices, &AnimationSpriteBundle, &PlayerTextureAtlasLayout),
-        Or<(Added<Predicted>, Added<Interpolated>)>,
+        (Entity, Has<Controlled>, &PlayerParent, &AnimationTimer, &AnimationIndices, &AnimationSpriteBundle, &PlayerTextureAtlasLayout),
+        (Added<Predicted>, With<PlayerId>)
     >,
     asset_server: Res<AssetServer>,
     mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
 ) {
-    for (parent, animation_timer, animation_indices, animation_sprite_bundle, atlas_layout) in &mut character_query {
+    for (entity, is_controlled, parent, animation_timer, animation_indices, animation_sprite_bundle, atlas_layout) in &mut character_query {
         let parent_entity = parent_query
             .get_mut(parent.0)
             .expect("Tail entity has no parent entity!");
@@ -365,8 +508,19 @@ fn player_spawn(
                 texture: texture.clone(),
                 ..default()
             },
-            atlas,
+            atlas
         ));
+
+        // is this our own entity?
+        if is_controlled {
+            info!("Own player replicated to us, adding inputmap {entity:?}");
+            commands.entity(entity).insert(PlayerBundle::get_input_map());
+        } else {
+            info!("Remote player replicated to us: {entity:?}");
+        }
+        let client_id = connection.id();
+        info!(?entity, ?client_id, "adding physics to predicted player");
+        commands.entity(entity).insert(PhysicsBundle::player());
     }
 }
 

@@ -17,5 +17,16 @@ bevy = { version = "0.14.2", default-features = false }
 interest_management = { path = "lightyear/interest_management" }
 serde = { version = "1.0.188", features = ["derive"] }
 lightyear = { path = "../lightyear/lightyear" }
+bevy_mod_scripting = { path = "../bevy_mod_scripting" }
+bevy_mod_scripting_core = { path = "../bevy_mod_scripting/crates/bevy_mod_scripting_core" }
+bevy_script_api = { path = "../bevy_mod_scripting/crates/bevy_script_api" }
+bevy_mod_scripting_lua = { path = "../bevy_mod_scripting/crates/languages/bevy_mod_scripting_lua" }
 bevy_mod_scripting_plugin = { path = "bevy_mod_scripting_plugin" }
 bevy_ecs_tilemap_plugin = { path = "bevy_ecs_tilemap_plugin" }
+avian2d = { version = "0.1.1", default-features = false, features = [
+  "2d",
+  "f32",
+  "parry-f32",
+  "parallel",
+  "serialize",
+] }

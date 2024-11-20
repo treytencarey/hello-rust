@@ -1,16 +1,22 @@
+use avian2d::prelude::{LinearVelocity, Position};
 use bevy::prelude::*;
 use bevy::utils::HashMap;
-use leafwing_input_manager::prelude::{ActionState, InputMap};
+use leafwing_input_manager::prelude::ActionState;
 
-use lightyear::prelude::server::*;
+use lightyear::prelude::{client::{Confirmed, Predicted}, server::*, InputChannel, InputMessage, MainSet, NetworkTarget, OverrideTargetComponent, PrePredicted, Replicated, ReplicationGroup};
 
-use crate::shared::{shared_movement_behaviour, Inputs, LastPosition, PlayerId, Position};
+use crate::shared::{shared_movement_behaviour, FixedSet, Inputs, LastPosition, PhysicsBundle, PlayerId, PlayerRoom};
 use lightyear::connection::id::ClientId;
 
 const TILE_SIZE: i32 = 32; // 32 pixels x 32 pixels
-const LEVEL_SIZE: i32 = 64; // 64 tiles x 64 tiles
+const LEVEL_SIZE: i32 = 256; // 64 tiles x 64 tiles
 pub const GRID_SIZE: i32 = TILE_SIZE * LEVEL_SIZE; // 2048 pixels x 2048 pixels
 const VIEW_DISTANCE: i32 = 0; // in grid units (1 = can see 1 grid unit away)
+
+// For prediction, we want everything entity that is predicted to be part of the same replication group
+// This will make sure that they will be replicated in the same message and that all the entities in the group
+// will always be consistent (= on the same tick)
+pub const REPLICATION_GROUP: ReplicationGroup = ReplicationGroup::new_id(1);
 
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin;
@@ -20,7 +26,18 @@ impl Plugin for ExampleServerPlugin {
         app.init_resource::<Global>();
         app.add_systems(Startup, init);
         // the physics/FixedUpdates systems that consume inputs should be run in this set
-        app.add_systems(FixedUpdate, movement);
+        app.add_systems(FixedUpdate, movement.in_set(FixedSet::Main));
+        app.add_systems(
+            PreUpdate,
+            // this system will replicate the inputs of a client to other clients
+            // so that a client can predict other clients
+            replicate_inputs.after(MainSet::EmitEvents),
+        );
+        // Re-adding Replicate components to client-replicated entities must be done in this set for proper handling.
+        app.add_systems(
+            PreUpdate,
+            replicate_players.in_set(ServerReplicationSet::ClientReplication),
+        );
         app.add_systems(
             Update,
             (
@@ -171,9 +188,9 @@ pub fn get_room_id_from_grid_position(grid_position: Vec2) -> RoomId {
 pub(crate) fn interest_management(
     mut room_manager: ResMut<RoomManager>,
     mut global: ResMut<Global>,
-    mut player_query: Query<(&PlayerId, Entity, Ref<Position>, &mut LastPosition)>
+    mut player_query: Query<(&PlayerId, &mut PlayerRoom, Entity, Ref<Position>, &mut LastPosition)>
 ) {
-    for (client_id, entity, position, last_position) in player_query.iter() {
+    for (client_id, mut player_room, entity, position, mut last_position) in player_query.iter_mut() {
         if position.is_changed() {
             let grid_position = get_grid_position(position.0);
             match last_position.0 {
@@ -193,6 +210,7 @@ pub(crate) fn interest_management(
                             add_client_to_room(&mut room_manager, &mut global, client_id.0, room_id);
                             if dx == 0 && dy == 0 { // Only add the entity to the room if it's in the center grid
                                 room_manager.add_entity(entity, room_id);
+                                player_room.0 = room_id.0;
                                 info!("Player spawned, added to center grid_pos {:?} (id: {:?})", view_grid_pos, room_id);
                             }
                         }
@@ -223,6 +241,7 @@ pub(crate) fn interest_management(
                         {
                             let room_id = get_room_id_from_grid_position(grid_position);
                             room_manager.add_entity(entity, room_id);
+                            player_room.0 = room_id.0;
                             info!("Player entity added to grid_pos {:?} (id: {:?})", grid_position, room_id);
                         }
                         // Remove the client from rooms that are no longer in view
@@ -241,18 +260,81 @@ pub(crate) fn interest_management(
                     }
                 }
             }
+            last_position.0 = Some(position.0);
         }
     }
-    for (client_id, entity, position, mut last_position) in player_query.iter_mut() {
-        last_position.0 = Some(position.0);
+}
+
+/// When we receive the input of a client, broadcast it to other clients
+/// so that they can predict this client's movements accurately
+pub(crate) fn replicate_inputs(
+    mut connection: ResMut<ConnectionManager>,
+    mut input_events: ResMut<Events<MessageEvent<InputMessage<Inputs>>>>,
+) {
+    for mut event in input_events.drain() {
+        let client_id = *event.context();
+
+        // Optional: do some validation on the inputs to check that there's no cheating
+
+        // rebroadcast the input to other clients
+        connection
+            .send_message_to_target::<InputChannel, _>(
+                &mut event.message,
+                NetworkTarget::AllExceptSingle(client_id),
+            )
+            .unwrap()
+    }
+}
+
+// Replicate the pre-predicted entities back to the client
+pub(crate) fn replicate_players(
+    global: Res<Global>,
+    mut commands: Commands,
+    query: Query<(Entity, &Replicated), (Added<Replicated>, With<PlayerId>)>,
+) {
+    for (entity, replicated) in query.iter() {
+        let client_id = replicated.client_id();
+        info!("received player spawn event from client {client_id:?}");
+
+        // for all player entities we have received, add a Replicate component so that we can start replicating it
+        // to other clients
+        if let Some(mut e) = commands.get_entity(entity) {
+            // we want to replicate back to the original client, since they are using a pre-predicted entity
+            let mut sync_target = SyncTarget::default();
+
+            // if global.predict_all {
+                sync_target.prediction = NetworkTarget::All;
+            // } else {
+            //     // we want the other clients to apply interpolation for the player
+            //     sync_target.interpolation = NetworkTarget::AllExceptSingle(client_id);
+            // }
+            let replicate = Replicate {
+                sync: sync_target,
+                controlled_by: ControlledBy {
+                    target: NetworkTarget::Single(client_id),
+                    ..default()
+                },
+                // make sure that all entities that are predicted are part of the same replication group
+                group: REPLICATION_GROUP,
+                ..default()
+            };
+            e.insert((
+                replicate,
+                // if we receive a pre-predicted entity, only send the prepredicted component back
+                // to the original client
+                OverrideTargetComponent::<PrePredicted>::new(NetworkTarget::Single(client_id)),
+                // not all physics components are replicated over the network, so add them on the server as well
+                PhysicsBundle::player(),
+            ));
+        }
     }
 }
 
 /// Read client inputs and move players
 pub(crate) fn movement(
-    mut position_query: Query<(&mut Position, &ActionState<Inputs>), Without<InputMap<Inputs>>>,
+    mut position_query: Query<(&mut LinearVelocity, &ActionState<Inputs>), (Without<Confirmed>, Without<Predicted>)>,
 ) {
-    for (mut position, input) in position_query.iter_mut() {
-        shared_movement_behaviour(&mut position, input);
+    for (velocity, input) in position_query.iter_mut() {
+        shared_movement_behaviour(velocity, input);
     }
 }
