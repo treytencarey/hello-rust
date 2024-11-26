@@ -24,6 +24,13 @@ lightyear = { path = "../../../lightyear/lightyear", features = [
   "leafwing",
   "steam",
 ] }
+avian2d = { version = "0.1.1", default-features = false, features = [
+  "2d",
+  "f32",
+  "parry-f32",
+  "parallel",
+  "serialize",
+] }
 serde = { version = "1.0.188", features = ["derive"] }
 anyhow = { version = "1.0.75", features = [] }
 tracing = "0.1"

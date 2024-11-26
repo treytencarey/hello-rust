@@ -1,10 +1,11 @@
+use avian2d::prelude::{LinearVelocity, Position};
 use bevy::prelude::*;
 use bevy::utils::HashMap;
 use leafwing_input_manager::prelude::{ActionState, InputMap};
 
-use lightyear::prelude::server::*;
+use lightyear::prelude::{server::*, InputChannel, InputMessage, MainSet, NetworkTarget};
 
-use crate::shared::{shared_movement_behaviour, Inputs, LastPosition, PlayerId, Position};
+use crate::shared::{Inputs, LastPosition, PlayerId};
 use lightyear::connection::id::ClientId;
 
 const TILE_SIZE: i32 = 32; // 32 pixels x 32 pixels
@@ -19,8 +20,12 @@ impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Global>();
         app.add_systems(Startup, init);
-        // the physics/FixedUpdates systems that consume inputs should be run in this set
-        app.add_systems(FixedUpdate, movement);
+        app.add_systems(
+            PreUpdate,
+            // this system will replicate the inputs of a client to other clients
+            // so that a client can predict other clients
+            replicate_inputs.after(MainSet::EmitEvents),
+        );
         app.add_systems(
             Update,
             (
@@ -56,6 +61,26 @@ pub(crate) fn init(mut commands: Commands) {
             ..default()
         }),
     );
+}
+
+pub(crate) fn replicate_inputs(
+    mut connection: ResMut<ConnectionManager>,
+    mut input_events: ResMut<Events<MessageEvent<InputMessage<Inputs>>>>,
+) {
+    for mut event in input_events.drain() {
+        let client_id = *event.context();
+
+        // Optional: do some validation on the inputs to check that there's no cheating
+        // Inputs for a specific tick should be write *once*. Don't let players change old inputs.
+
+        // rebroadcast the input to other clients
+        connection
+            .send_message_to_target::<InputChannel, _>(
+                &mut event.message,
+                NetworkTarget::AllExceptSingle(client_id),
+            )
+            .unwrap()
+    }
 }
 
 /// Server connection system, add the client to the rooms they can see
@@ -245,14 +270,5 @@ pub(crate) fn interest_management(
     }
     for (client_id, entity, position, mut last_position) in player_query.iter_mut() {
         last_position.0 = Some(position.0);
-    }
-}
-
-/// Read client inputs and move players
-pub(crate) fn movement(
-    mut position_query: Query<(&mut Position, &ActionState<Inputs>), Without<InputMap<Inputs>>>,
-) {
-    for (mut position, input) in position_query.iter_mut() {
-        shared_movement_behaviour(&mut position, input);
     }
 }

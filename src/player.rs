@@ -1,17 +1,29 @@
-use bevy::{ecs::entity::MapEntities, prelude::*, render::RenderPlugin};
-use client::{ComponentSyncMode, Confirmed};
+use std::time::Duration;
+
+use avian2d::prelude::{AngularVelocity, Collider, ColliderDensity, LinearVelocity, Position, RigidBody, Rotation};
+use bevy::{ecs::{entity::MapEntities, query::QueryData}, prelude::*, render::RenderPlugin};
+use client::{ComponentSyncMode, Confirmed, PredictionSet, VisualInterpolateStatus, VisualInterpolationPlugin};
 use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::input_map::InputMap;
-use interest_management::{client::{ClientConnection, Interpolated, NetClient, Predicted}, server::get_room_id_from_grid_position, shared::{Inputs, LastPosition, PlayerId, Position}};
-use lightyear::prelude::ReplicationGroup;
+use interest_management::{client::{ClientConnection, Interpolated, NetClient, Predicted}, server::get_room_id_from_grid_position, shared::{Inputs, LastPosition, PlayerId}};
+use lightyear::{prelude::ReplicationGroup, shared::replication::components::Controlled};
 use lightyear::prelude::server::{ControlledBy, Replicate, SyncTarget};
 use lightyear::prelude::*;
+use lightyear::utils::avian2d::*;
 use server::RoomManager;
 
 // For prediction, we want everything entity that is predicted to be part of the same replication group
 // This will make sure that they will be replicated in the same message and that all the entities in the group
 // will always be consistent (= on the same tick)
 pub const REPLICATION_GROUP: ReplicationGroup = ReplicationGroup::new_id(1);
+
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum FixedSet {
+    // main fixed update systems (handle inputs)
+    Main,
+    // apply physics steps
+    Physics,
+}
 
 // Player
 #[derive(Bundle)]
@@ -22,6 +34,26 @@ pub(crate) struct PlayerBundle {
     color: PlayerColor,
     replicate: Replicate,
     action_state: ActionState<Inputs>,
+}
+
+#[derive(Bundle)]
+pub(crate) struct PhysicsBundle {
+    collider: Collider,
+    collider_density: ColliderDensity,
+    rigid_body: RigidBody
+}
+
+impl PhysicsBundle {
+    pub(crate) fn player() -> Self {
+        // Note: due to a bug in older (?) versions of bevy_xpbd, using a triangle collider here
+        // sometimes caused strange behaviour. Unsure if this is fixed now.
+        // Also, counter-clockwise ordering of points was required for convex hull creation (?)
+        Self {
+            collider: Collider::rectangle(32.0, 32.0),
+            collider_density: ColliderDensity(1.0),
+            rigid_body: RigidBody::Dynamic,
+        }
+    }
 }
 
 // Animation
@@ -113,6 +145,34 @@ impl AnimationBundle {
     }
 }
 
+// Components
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+pub struct Player {
+    pub client_id: ClientId,
+    pub nickname: String,
+    pub rtt: Duration,
+    pub jitter: Duration,
+}
+
+impl Player {
+    pub fn new(client_id: ClientId, nickname: String) -> Self {
+        Self {
+            client_id,
+            nickname,
+            rtt: Duration::ZERO,
+            jitter: Duration::ZERO,
+        }
+    }
+}
+
+#[derive(QueryData)]
+#[query_data(mutable, derive(Debug))]
+pub struct ApplyInputsQuery {
+    pub lin_vel: &'static mut LinearVelocity,
+    pub ang_vel: &'static mut AngularVelocity,
+    pub player: &'static Player,
+}
+
 // and deriving the `MapEntities` trait for the component.
 #[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq, Reflect)]
 pub struct PlayerParent(pub Entity);
@@ -174,19 +234,39 @@ impl Plugin for PlayerSharedPlugin {
         // If we can render, add box drawing
         if app.is_plugin_added::<RenderPlugin>() {
             app.add_systems(Update, draw_boxes);
+
+            // set up visual interp plugins for Position and Rotation.
+            // this doesn't do anything until you add VisualInterpolationStatus components to entities.
+            app.add_plugins(VisualInterpolationPlugin::<Position>::default());
+            // app.add_plugins(VisualInterpolationPlugin::<Rotation>::default());
+
+            // observers that add VisualInterpolationStatus components to entities which receive
+            // a Position or Rotation component.
+            app.observe(add_visual_interpolation_components::<Position>);
+            // app.observe(add_visual_interpolation_components::<Rotation>);
         }
 
         // inputs
         app.add_plugins(LeafwingInputPlugin::<Inputs>::default());
         // components
+        // Player is synced as Simple, because we periodically update rtt ping stats
+        app.register_component::<Player>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Simple);
+
         app.register_component::<PlayerId>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once)
             .add_interpolation(ComponentSyncMode::Once);
 
-        app.register_component::<Position>(ChannelDirection::Bidirectional)
+        app.register_component::<Position>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Full)
-            .add_interpolation(ComponentSyncMode::Full)
-            .add_linear_interpolation_fn();
+            .add_interpolation_fn(position::lerp)
+            .add_correction_fn(position::lerp);
+
+        app.register_component::<LinearVelocity>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Full);
+
+        app.register_component::<AngularVelocity>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Full);
 
         app.register_component::<PlayerColor>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once)
@@ -220,19 +300,53 @@ impl Plugin for PlayerSharedPlugin {
     }
 }
 
+// Non-wall entities get some visual interpolation by adding the lightyear
+// VisualInterpolateStatus component
+//
+// We query filter With<Predicted> so that the correct client entities get visual-interpolation.
+// We don't want to visually interpolate the client's Confirmed entities, since they are not rendered.
+//
+// If your game uses Interpolated entities as well as Predicted, change the filter to:
+//
+//   Or<(With<Predicted>, With<Interpolated>)>
+//
+// We must trigger change detection so that the SyncPlugin will detect and sync changes
+// from Position/Rotation to Transform.
+//
+// Without syncing interpolated pos/rot to transform, things like sprites, meshes, and text which
+// render based on the *Transform* component (not avian's Position) will be stuttery.
+//
+// (Note also that we've configured avian's SyncPlugin to run in PostUpdate)
+fn add_visual_interpolation_components<T: Component>(
+    trigger: Trigger<OnAdd, T>,
+    q: Query<Entity, (With<T>, With<Predicted>)>, // TODO TC - Without<Wall>
+    mut commands: Commands,
+) {
+    if !q.contains(trigger.entity()) {
+        return;
+    }
+    debug!("Adding visual interp component to {:?}", trigger.entity());
+    commands
+        .entity(trigger.entity())
+        .insert(VisualInterpolateStatus::<T> {
+            trigger_change_detection: true,
+            ..default()
+        });
+}
+
 /// System that draws the boxed of the player positions.
 /// The components should be replicated from the server to the client
 /// This time we will only draw the predicted/interpolated entities
 pub(crate) fn draw_boxes(
     mut gizmos: Gizmos,
-    mut players: Query<(&Position, &mut Transform, &PlayerColor), Without<Confirmed>>,
+    mut players: Query<(&Position, &mut Transform), With<Player>>,
 ) {
-    for (position, mut transform, color) in players.iter_mut() {
+    for (position, mut transform) in players.iter_mut() {
         gizmos.rect(
             Vec3::new(position.x, position.y, 0.0),
             Quat::IDENTITY,
             Vec2::ONE * 50.0,
-            color.0,
+            Color::linear_rgb(1.0, 0.0, 0.0)
         );
         transform.translation = Vec3::new(position.x, position.y, 0.0);
     }
@@ -246,6 +360,28 @@ pub fn color_from_id(client_id: ClientId) -> Color {
     Color::hsl(h, s, l)
 }
 
+// This system defines how we update the player's positions when we receive an input
+pub fn shared_movement_behaviour(
+    aiq: &mut ApplyInputsQueryItem,
+    action: &ActionState<Inputs>,
+) {
+    let velocity = &mut aiq.lin_vel;
+    const MOVE_SPEED: f32 = 10.0;
+    if action.pressed(&Inputs::Up) {
+        velocity.y += MOVE_SPEED;
+    }
+    if action.pressed(&Inputs::Down) {
+        velocity.y -= MOVE_SPEED;
+    }
+    if action.pressed(&Inputs::Left) {
+        velocity.x -= MOVE_SPEED;
+    }
+    if action.pressed(&Inputs::Right) {
+        velocity.x += MOVE_SPEED;
+    }
+    // *velocity = LinearVelocity(velocity.clamp_length_max(50.0));
+}
+
 
 // ################################################################################################
 
@@ -254,6 +390,13 @@ pub struct PlayerServerPlugin;
 impl Plugin for PlayerServerPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Update, handle_connections);
+        // the physics/FixedUpdates systems that consume inputs should be run in this set
+        app.add_systems(
+            FixedUpdate,
+            (movement)
+                .chain()
+                .in_set(FixedSet::Main),
+        );
     }
 }
 
@@ -266,9 +409,30 @@ pub(crate) fn handle_connections(
     for connection in connections.read() {
         let position = Vec2::ZERO + Vec2::new(100.0, 100.0);
         let client_id = connection.client_id;
-        let entity = commands.spawn(
-            PlayerBundle::new(client_id, position)
-        ).id();
+
+        // replicate newly connected clients to all players
+        let replicate = Replicate {
+            sync: SyncTarget {
+                prediction: NetworkTarget::All,
+                ..default()
+            },
+            controlled_by: ControlledBy {
+                target: NetworkTarget::Single(client_id),
+                ..default()
+            },
+            // make sure that all entities that are predicted are part of the same replication group
+            group: REPLICATION_GROUP,
+            ..default()
+        };
+        let entity = commands.spawn((
+            Player::new(client_id, "Player".to_string()),
+            PlayerId(client_id),
+            ActionState::<Inputs>::default(),
+            Position(position),
+            LastPosition(None),
+            replicate,
+            PhysicsBundle::player(),
+        )).id();
         let animation_entity = commands.spawn(
             AnimationBundle::new(client_id, entity)
         ).id();
@@ -287,28 +451,27 @@ impl Plugin for PlayerClientPlugin {
         app.add_systems(
             Update,
             (
-                add_input_map,
                 player_spawn,
+                handle_new_player,
                 camera_movement,
                 animate_sprite,
             ),
         );
-        app.add_systems(PreUpdate, handle_connection.after(MainSet::Receive));
-    }
-}
-
-// System to receive messages on the client
-pub(crate) fn add_input_map(
-    mut commands: Commands,
-    predicted_players: Query<Entity, (Added<PlayerId>, With<Predicted>)>,
-) {
-    // we don't want to replicate the ActionState from the server to client, because if we have an ActionState
-    // on the Confirmed player it will keep getting replicated to Predicted and will interfere with our inputs
-    for player_entity in predicted_players.iter() {
-        commands.entity(player_entity).insert((
-            PlayerBundle::get_input_map(),
-            ActionState::<Inputs>::default(),
-        ));
+        // all actions related-system that can be rolled back should be in FixedUpdate schedule
+        app.add_systems(
+            FixedUpdate,
+            (
+                movement.run_if(not(is_host_server))
+            )
+                .chain()
+                .in_set(FixedSet::Main),
+        );
+        app.add_systems(
+            PreUpdate,
+            handle_connection
+                .after(MainSet::Receive)
+                .before(PredictionSet::SpawnPrediction),
+        );
     }
 }
 
@@ -331,6 +494,37 @@ pub(crate) fn handle_connection(
     }
 }
 
+/// Decorate newly connecting players with physics components
+/// ..and if it's our own player, set up input stuff
+#[allow(clippy::type_complexity)]
+fn handle_new_player(
+    connection: Res<ClientConnection>,
+    mut commands: Commands,
+    mut player_query: Query<(Entity, Has<Controlled>), (Added<Predicted>, With<Player>)>,
+) {
+    for (entity, is_controlled) in player_query.iter_mut() {
+        // is this our own entity?
+        if is_controlled {
+            info!("Own player replicated to us, adding inputmap {entity:?}");
+            commands.entity(entity).insert(InputMap::new([
+                (Inputs::Up, KeyCode::ArrowUp),
+                (Inputs::Down, KeyCode::ArrowDown),
+                (Inputs::Left, KeyCode::ArrowLeft),
+                (Inputs::Right, KeyCode::ArrowRight),
+                (Inputs::Up, KeyCode::KeyW),
+                (Inputs::Down, KeyCode::KeyS),
+                (Inputs::Left, KeyCode::KeyA),
+                (Inputs::Right, KeyCode::KeyD),
+            ]));
+        } else {
+            info!("Remote player replicated to us: {entity:?}");
+        }
+        let client_id = connection.id();
+        info!(?entity, ?client_id, "adding physics to predicted player");
+        commands.entity(entity).insert(PhysicsBundle::player());
+    }
+}
+
 fn player_spawn(
     connection: Res<ClientConnection>,
     mut commands: Commands,
@@ -342,31 +536,44 @@ fn player_spawn(
     asset_server: Res<AssetServer>,
     mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
 ) {
-    for (parent, animation_timer, animation_indices, animation_sprite_bundle, atlas_layout) in &mut character_query {
-        let parent_entity = parent_query
-            .get_mut(parent.0)
-            .expect("Tail entity has no parent entity!");
-        // spawn extra sprites, etc.
-        let texture = asset_server.load(animation_sprite_bundle.texture.0.clone());
-        let layout = TextureAtlasLayout::from_grid(atlas_layout.0.tile_size, atlas_layout.0.columns, atlas_layout.0.rows, None, atlas_layout.0.offset);
-        let texture_atlas_layout = texture_atlas_layouts.add(layout);
-        let atlas = TextureAtlas {
-            layout: texture_atlas_layout.clone(),
-            index: animation_indices.first,
-        };
+    // for (parent, animation_timer, animation_indices, animation_sprite_bundle, atlas_layout) in &mut character_query {
+    //     let parent_entity = parent_query
+    //         .get_mut(parent.0)
+    //         .expect("Tail entity has no parent entity!");
+    //     // spawn extra sprites, etc.
+    //     let texture = asset_server.load(animation_sprite_bundle.texture.0.clone());
+    //     let layout = TextureAtlasLayout::from_grid(atlas_layout.0.tile_size, atlas_layout.0.columns, atlas_layout.0.rows, None, atlas_layout.0.offset);
+    //     let texture_atlas_layout = texture_atlas_layouts.add(layout);
+    //     let atlas = TextureAtlas {
+    //         layout: texture_atlas_layout.clone(),
+    //         index: animation_indices.first,
+    //     };
 
-        let client_id = connection.id();
-        info!(?parent, ?client_id, "Adding animation to character");
-        commands.entity(parent_entity).insert((
-            animation_timer.clone(),
-            animation_indices.clone(),
-            SpriteBundle {
-                transform: Transform::from_xyz(0., 0., 17.).with_scale(Vec3::splat(2.0)),
-                texture: texture.clone(),
-                ..default()
-            },
-            atlas,
-        ));
+    //     let client_id = connection.id();
+    //     info!(?parent, ?client_id, "Adding animation to character");
+    //     commands.entity(parent_entity).insert((
+    //         animation_timer.clone(),
+    //         animation_indices.clone(),
+    //         SpriteBundle {
+    //             transform: Transform::from_xyz(0., 0., 17.).with_scale(Vec3::splat(2.0)),
+    //             texture: texture.clone(),
+    //             ..default()
+    //         },
+    //         atlas,
+    //     ));
+    // }
+}
+
+// The client input only gets applied to predicted entities that we own
+// This works because we only predict the user's controlled entity.
+// If we were predicting more entities, we would have to only apply movement to the player owned one.
+pub(crate) fn movement(
+    // TODO: maybe make prediction mode a separate component!!!
+    mut position_query: Query<(&ActionState<Inputs>, ApplyInputsQuery), With<Player>>,
+) {
+    for (input, mut aiq) in position_query.iter_mut() {
+        shared_movement_behaviour(&mut aiq, input);
+        // transform.translation = position.0.extend(0.0);
     }
 }
 

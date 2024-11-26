@@ -1,6 +1,7 @@
+use avian2d::prelude::Position;
 use bevy::prelude::*;
 use bevy_ecs_tilemap_plugin::helpers::tiled;
-use interest_management::{client::{ComponentSyncMode, ConnectionManager, Interpolated, Predicted}, server::{get_grid_position, get_room_id_from_grid_position, GRID_SIZE}, shared::{LastPosition, Position}};
+use interest_management::{client::{ComponentSyncMode, ConnectionManager, Interpolated, Predicted}, server::{get_grid_position, get_room_id_from_grid_position, GRID_SIZE}, shared::LastPosition};
 use lightyear::{prelude::{server::{Replicate, RoomManager, SyncTarget}, AppComponentExt, ChannelDirection, NetworkRelevanceMode, ReplicationGroup}, shared::replication::network_target::NetworkTarget};
 use serde::{Deserialize, Serialize};
 

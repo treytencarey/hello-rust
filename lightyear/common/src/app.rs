@@ -318,6 +318,34 @@ impl Apps {
         self
     }
 
+    /// TC - Used for e.g. movement that need server/client processing
+    /// Add the shared user-provided plugins to the app
+    pub fn add_user_shared_plugins(
+        &mut self,
+        shared_plugin: impl Plugin + Clone,
+    ) -> &mut Self {
+        match self {
+            Apps::Client { app, .. } => {
+                app.add_plugins(shared_plugin);
+            }
+            Apps::Server { app, .. } => {
+                app.add_plugins(shared_plugin);
+            }
+            Apps::ClientAndServer {
+                client_app,
+                server_app,
+                ..
+            } => {
+                client_app.add_plugins(shared_plugin.clone());
+                server_app.add_plugins(shared_plugin);
+            }
+            Apps::HostServer { app, .. } => {
+                app.add_plugins(shared_plugin);
+            }
+        }
+        self
+    }
+
     /// Apply a function to update the [`ClientConfig`]
     pub fn update_lightyear_client_config(
         &mut self,
