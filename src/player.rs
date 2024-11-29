@@ -1,7 +1,8 @@
 use std::time::Duration;
 
-use avian2d::prelude::{AngularVelocity, Collider, ColliderDensity, LinearVelocity, Position, RigidBody, Rotation};
+use avian2d::{parry::shape::SharedShape, prelude::{AngularVelocity, Collider, ColliderDensity, LinearVelocity, Position, RigidBody, Rotation}};
 use bevy::{ecs::{entity::MapEntities, query::QueryData}, prelude::*, render::RenderPlugin};
+use bevy_ecs_tilemap_plugin::helpers::tiled;
 use client::{ComponentSyncMode, Confirmed, PredictionSet, VisualInterpolateStatus, VisualInterpolationPlugin};
 use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::input_map::InputMap;
@@ -233,7 +234,7 @@ impl Plugin for PlayerSharedPlugin {
     fn build(&self, app: &mut App) {
         // If we can render, add box drawing
         if app.is_plugin_added::<RenderPlugin>() {
-            app.add_systems(Update, draw_boxes);
+            app.add_systems(Update, (draw_boxes, draw_colliders));
 
             // set up visual interp plugins for Position and Rotation.
             // this doesn't do anything until you add VisualInterpolationStatus components to entities.
@@ -352,6 +353,20 @@ pub(crate) fn draw_boxes(
     }
 }
 
+fn draw_colliders(
+    mut gizmos: Gizmos,
+    query: Query<(&Transform, &Collider)>,
+) {
+    for (transform, collider) in query.iter() {
+        gizmos.rect(
+            Vec3::new(transform.translation.x, transform.translation.y, 0.0),
+            Quat::IDENTITY,
+            Vec2::new(32.0, 32.0),
+            Color::linear_rgb(0.0, 1.0, 0.0)
+        );
+    }
+}
+
 /// Generate a color from the `ClientId`
 pub fn color_from_id(client_id: ClientId) -> Color {
     let h = (((client_id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;
@@ -365,8 +380,10 @@ pub fn shared_movement_behaviour(
     aiq: &mut ApplyInputsQueryItem,
     action: &ActionState<Inputs>,
 ) {
+    const MOVE_SPEED: f32 = 500.0;
     let velocity = &mut aiq.lin_vel;
-    const MOVE_SPEED: f32 = 10.0;
+    velocity.x = 0.0;
+    velocity.y = 0.0;
     if action.pressed(&Inputs::Up) {
         velocity.y += MOVE_SPEED;
     }
@@ -579,12 +596,14 @@ pub(crate) fn movement(
 
 fn camera_movement(
     mut camera: Query<&mut Transform, With<Camera>>,
-    player: Query<&Position, With<Predicted>>
+    player: Query<(&Position, Has<Controlled>), With<Player>>
 ) {
     for mut transform in &mut camera {
-        for player_transform in &player {
-            transform.translation.x = player_transform.x;
-            transform.translation.y = player_transform.y;
+        for (player_transform, is_controlled) in &player {
+            if is_controlled {
+                transform.translation.x = player_transform.x;
+                transform.translation.y = player_transform.y;
+            }
         }
     }
 }
